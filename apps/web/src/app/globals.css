@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: light-dark(hsl(0 0% 100%), hsl(222.2 84% 4.9%));
+  --color-foreground: light-dark(hsl(222.2 47.4% 11.2%), hsl(210 40% 98%));
+  --color-card: light-dark(hsl(0 0% 100%), hsl(222.2 84% 4.9%));
+  --color-card-foreground: light-dark(hsl(222.2 47.4% 11.2%), hsl(210 40% 98%));
+  --color-primary: light-dark(hsl(222.2 47.4% 11.2%), hsl(210 40% 98%));
+  --color-primary-foreground: light-dark(hsl(210 40% 98%), hsl(222.2 47.4% 11.2%));
+  --color-secondary: light-dark(hsl(210 40% 96.1%), hsl(217.2 32.6% 17.5%));
+  --color-secondary-foreground: light-dark(hsl(222.2 47.4% 11.2%), hsl(210 40% 98%));
+  --color-muted: light-dark(hsl(210 40% 96.1%), hsl(217.2 32.6% 17.5%));
+  --color-muted-foreground: light-dark(hsl(215.4 16.3% 46.9%), hsl(215 20.2% 65.1%));
+  --color-accent: light-dark(hsl(210 40% 96.1%), hsl(217.2 32.6% 17.5%));
+  --color-accent-foreground: light-dark(hsl(222.2 47.4% 11.2%), hsl(210 40% 98%));
+  --color-destructive: light-dark(hsl(0 84.2% 60.2%), hsl(0 62.8% 30.6%));
+  --color-destructive-foreground: light-dark(hsl(210 40% 98%), hsl(210 40% 98%));
+  --color-border: light-dark(hsl(214.3 31.8% 91.4%), hsl(217.2 32.6% 17.5%));
+  --color-input: light-dark(hsl(214.3 31.8% 91.4%), hsl(217.2 32.6% 17.5%));
+  --color-ring: light-dark(hsl(215 20.2% 65.1%), hsl(217.2 32.6% 17.5%));
+  --radius: 0.5rem;
+}
+
+/* 动画效果 */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-in {
+  animation-duration: 0.5s;
+  animation-fill-mode: both;
+}
+
+.fade-in {
+  animation-name: fade-in;
+}
+
+.slide-in-from-bottom {
+  animation-name: slide-in-from-bottom;
+}
+
+.slide-in-from-left {
+  animation-name: slide-in-from-left;
+}
+
+.duration-500 {
+  animation-duration: 0.5s;
+}

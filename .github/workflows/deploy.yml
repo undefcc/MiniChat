@@ -1,0 +1,110 @@
+name: Build Next.js and Deploy to Aliyun ECS
+
+on:
+  push:
+    branches: [ main ] # 指定触发分支，可根据需要修改
+
+env:
+  # 定义全局环境变量，方便统一修改
+  REGISTRY: crpi-zpvonb2nha7j0qgy.cn-shenzhen.personal.cr.aliyuncs.com  # 阿里云容器镜像服务（ACR）注册表地址:cite[2]:cite[5]
+  IMAGE_NAMESPACE: cc4ever  # 在阿里云ACR中创建的命名空间:cite[5]
+  APP_NAME: web-intro  # 应用名称
+
+jobs:
+  build-and-push-docker:
+    runs-on: ubuntu-latest
+    steps:
+      # 步骤1: 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 步骤2: 设置 Node.js 环境
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20' # 与本地开发环境保持一致
+          cache: 'npm'
+
+      # 步骤3: 安装依赖并构建 Next.js (standalone 模式)
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run build
+
+      # 步骤4: 准备 Docker 构建上下文
+      - name: Prepare Docker context
+        run: |
+          # 创建存放构建产物的目录
+          mkdir -p docker-build-context
+          # 复制 standalone 模式生成的所有运行文件（包括隐藏文件）
+          shopt -s dotglob  # 启用隐藏文件匹配
+          cp -r .next/standalone/* docker-build-context/
+          shopt -u dotglob  # 关闭隐藏文件匹配
+          # 复制自定义 server.js（覆盖 standalone 自动生成的）
+          cp server.js docker-build-context/
+          # 复制静态资源（standalone 不包含静态文件）
+          if [ -d ".next/static" ]; then
+            echo "复制静态文件..."
+            cp -r .next/static docker-build-context/.next/
+          else
+            echo "Warning: No static files found"
+          fi
+          # 复制 public 目录
+          cp -r public docker-build-context/ 2>/dev/null || true
+          # 查看目录结构，用于调试
+          echo "=== Docker build context structure ==="
+          ls -la docker-build-context/
+          echo "=== .next directory ==="
+          ls -la docker-build-context/.next/ 2>/dev/null || echo "No .next directory"
+          echo "=== .next/server directory ==="  
+          ls -la docker-build-context/.next/server/ 2>/dev/null || echo "No .next/server directory"
+          echo "=== Socket.IO modules ==="
+          ls -la docker-build-context/node_modules/socket.io/ 2>/dev/null || echo "No socket.io"
+
+      # 步骤5: 登录阿里云 Docker Registry
+      - name: Login to Aliyun Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.ALIYUN_DOCKER_USERNAME }} # 阿里云注册表用户名:cite[5]
+          password: ${{ secrets.ALIYUN_DOCKER_PASSWORD }} # 阿里云注册表密码:cite[5]
+
+      # 步骤6: 构建并推送 Docker 镜像
+      - name: Build and push Docker image
+        run: |
+          # 使用 Git 提交的 SHA 作为镜像标签，确保唯一性:cite[4]
+          docker build \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:${GITHUB_SHA:0:8} \
+            -f script/Dockerfile docker-build-context
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:${GITHUB_SHA:0:8}
+
+          # 同时标记为 latest（可选，便于快速部署）
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:${GITHUB_SHA:0:8} ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:latest
+
+  # # 部署到阿里云 ECS 服务器（可选，如果希望 Actions 自动部署）
+  # deploy-to-ecs:
+  #   runs-on: ubuntu-latest
+  #   needs: build-and-push-docker # 依赖构建任务，确保先构建镜像
+  #   steps:
+  #     # 使用 SSH 动作连接到 ECS 并执行部署命令:cite[1]:cite[4]
+  #     - name: Deploy to Aliyun ECS via SSH
+  #       uses: appleboy/ssh-action@v0.1.9
+  #       with:
+  #         host: ${{ secrets.ECS_HOST }} # ECS 服务器的公网 IP
+  #         username: ${{ secrets.ECS_USERNAME }} # 登录用户名，如 root, ecs-user, 或 ubuntu
+  #         key: ${{ secrets.ECS_SSH_PRIVATE_KEY }} # 用于认证的 SSH 私钥
+  #         script: |
+  #           # 登录阿里云容器镜像服务:cite[4]
+  #           docker login --username=${{ secrets.ALIYUN_DOCKER_USERNAME }} --password=${{ secrets.ALIYUN_DOCKER_PASSWORD }} ${{ env.REGISTRY }}
+  #           # 拉取最新的镜像:cite[1]
+  #           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:latest
+  #           # 停止并移除旧的容器（如果存在）
+  #           docker stop ${{ env.APP_NAME }} || true
+  #           docker rm ${{ env.APP_NAME }} || true
+  #           # 运行新的容器，传入环境变量:cite[1]
+  #           docker run -d -p 3000:3000 \
+  #             --name ${{ env.APP_NAME }} \
+  #             --restart unless-stopped \
+  #             -e AI_302_API_KEY="${{ secrets.AI_302_API_KEY }}" \
+  #             ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:latest
