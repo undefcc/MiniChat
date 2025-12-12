@@ -10,11 +10,14 @@ services:
       - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - minichat-network
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: always
 
   redis:
     image: redis:7-alpine
@@ -23,13 +26,83 @@ services:
       - '6379:6379'
     volumes:
       - redis_data:/data
+    networks:
+      - minichat-network
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: always
 
+  signaling:
+    image: crpi-zpvonb2nha7j0qgy.cn-shenzhen.personal.cr.aliyuncs.com/cc4ever/minichat-signaling:latest
+    container_name: minichat-signaling
+    ports:
+      - "3101:3101"
+    environment:
+      - NODE_ENV=production
+      - PORT=3101
+      - CORS_ORIGIN=${CORS_ORIGIN}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    networks:
+      - minichat-network
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  web:
+    image: crpi-zpvonb2nha7j0qgy.cn-shenzhen.personal.cr.aliyuncs.com/cc4ever/minichat-web:latest
+    container_name: minichat-web
+    ports:
+      - "3100:3100"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
+      - NEXT_PUBLIC_TURN_USERNAME=${TURN_USERNAME}
+      - NEXT_PUBLIC_TURN_CREDENTIAL=${TURN_CREDENTIAL}
+    depends_on:
+      - signaling
+    networks:
+      - minichat-network
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  gateway:
+    image: crpi-zpvonb2nha7j0qgy.cn-shenzhen.personal.cr.aliyuncs.com/cc4ever/minichat-gateway:latest
+    container_name: minichat-gateway
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/minichat
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - minichat-network
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  minichat-network:
+    driver: bridge
 
 volumes:
   postgres_data:

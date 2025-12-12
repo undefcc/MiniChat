@@ -1,0 +1,29 @@
+services:
+  signaling:
+    image: minichat-signaling:test
+    container_name: minichat-signaling-test
+    ports:
+      - "3101:3101"
+    environment:
+      - NODE_ENV=production
+      - PORT=3101
+      - CORS_ORIGIN=http://localhost:3100
+    restart: unless-stopped
+
+  web:
+    image: minichat-web:test
+    container_name: minichat-web-test
+    ports:
+      - "3100:3100"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_SOCKET_URL=http://localhost:3101
+      - NEXT_PUBLIC_TURN_USERNAME=${TURN_USERNAME:-9d27597c98c7229fc242d1f6}
+      - NEXT_PUBLIC_TURN_CREDENTIAL=${TURN_CREDENTIAL:-fF6sGahr0DF+3BrN}
+    depends_on:
+      - signaling
+    restart: unless-stopped
+
+networks:
+  minichat-network:
+    driver: bridge

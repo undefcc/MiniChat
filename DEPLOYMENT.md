@@ -68,75 +68,22 @@ railway up
 
 #### 1. 构建 Docker 镜像
 
-在项目根目录创建 `Dockerfile.web`:
+每个服务都有独立的 Dockerfile，位于各自的目录中：
+- `apps/web/Dockerfile` - Web 前端
+- `apps/signaling/Dockerfile` - Signaling 服务
+- `apps/gateway/Dockerfile` - Gateway 服务
 
-```dockerfile
-FROM node:20-alpine AS base
-RUN npm install -g pnpm
+构建镜像（在项目根目录执行）：
 
-# 依赖安装阶段
-FROM base AS deps
-WORKDIR /app
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
-COPY apps/web/package.json ./apps/web/
-RUN pnpm install --frozen-lockfile
+```bash
+# 构建 Web 前端
+docker build -t minichat-web:latest -f apps/web/Dockerfile .
 
-# 构建阶段
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
-COPY . .
-WORKDIR /app/apps/web
-RUN pnpm build
+# 构建 Signaling 服务
+docker build -t minichat-signaling:latest -f apps/signaling/Dockerfile .
 
-# 生产运行阶段
-FROM base AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-
-COPY --from=builder /app/apps/web/.next/standalone ./
-COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder /app/apps/web/public ./apps/web/public
-
-EXPOSE 3100
-ENV PORT=3100
-
-CMD ["node", "apps/web/server.js"]
-```
-
-创建 `Dockerfile.signaling`:
-
-```dockerfile
-FROM node:20-alpine AS base
-RUN npm install -g pnpm
-
-FROM base AS deps
-WORKDIR /app
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
-COPY apps/signaling/package.json ./apps/signaling/
-RUN pnpm install --frozen-lockfile
-
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/signaling/node_modules ./apps/signaling/node_modules
-COPY . .
-WORKDIR /app/apps/signaling
-RUN pnpm build
-
-FROM base AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-
-COPY --from=builder /app/apps/signaling/dist ./dist
-COPY --from=builder /app/apps/signaling/node_modules ./node_modules
-COPY --from=builder /app/apps/signaling/package.json ./
-
-EXPOSE 3101
-ENV PORT=3101
-
-CMD ["node", "dist/main.js"]
+# 构建 Gateway 服务
+docker build -t minichat-gateway:latest -f apps/gateway/Dockerfile .
 ```
 
 #### 2. 使用 docker-compose 编排
@@ -176,57 +123,88 @@ services:
   #     - "4000:4000"
 ```
 
-#### 3. 部署到服务器
+#### 3. 使用 GitHub Actions 自动部署
+
+项目配置了 GitHub Actions 工作流（`.github/workflows/deploy.yml`），可以自动构建镜像并推送到阿里云容器镜像服务。
+
+**GitHub Secrets 配置：**
+
+在 GitHub 仓库设置中添加以下 Secrets：
+
+```
+ALIYUN_DOCKER_USERNAME=your-aliyun-username
+ALIYUN_DOCKER_PASSWORD=your-aliyun-password
+ECS_HOST=your-server-ip
+ECS_USERNAME=root
+ECS_SSH_PRIVATE_KEY=your-private-key
+JWT_SECRET=your-jwt-secret
+DATABASE_URL=your-database-url
+TURN_USERNAME=your-turn-username
+TURN_CREDENTIAL=your-turn-credential
+```
+
+**触发部署：**
 
 ```bash
-# 构建并启动
-docker-compose up -d --build
+# 方式 1: 推送代码自动触发（只构建修改的服务）
+git add .
+git commit -m "feat: update service"
+git push
 
-# 查看日志
-docker-compose logs -f
-
-# 停止服务
-docker-compose down
+# 方式 2: 手动触发（选择要部署的服务）
+# 在 GitHub Actions 页面点击 "Run workflow"
+# 选择要构建的服务: web, signaling, gateway 或 all
 ```
+
+**部署流程：**
+1. 自动检测修改的服务
+2. 构建 Docker 镜像
+3. 推送到阿里云镜像仓库
+4. SSH 到服务器
+5. 拉取最新镜像并重启服务
 
 ---
 
 ### 方案三：传统服务器部署
+#### 2. 使用 docker-compose 编排
 
-**适合场景**：已有 VPS/云服务器
+项目提供了两个 docker-compose 文件：
 
-#### 1. 服务器准备
-
+**`docker-compose.test.yml` - 本地测试**
 ```bash
-# 安装 Node.js 20+
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+# 启动测试环境（使用本地构建的镜像）
+docker-compose -f docker-compose.test.yml up -d
 
-# 安装 pnpm
-npm install -g pnpm
+# 查看日志
+docker-compose -f docker-compose.test.yml logs -f
 
-# 安装 PM2
-npm install -g pm2
+# 停止服务
+docker-compose -f docker-compose.test.yml down
 ```
 
-#### 2. 部署代码
+**`docker-compose.yml` - 生产部署**
+
+包含完整的服务栈（数据库、Redis、应用服务）：
 
 ```bash
-# 克隆代码
-git clone https://github.com/your-username/miniChat.git
-cd miniChat
+# 首先配置环境变量（创建 .env 文件）
+cat > .env << EOF
+CORS_ORIGIN=https://your-domain.com
+NEXT_PUBLIC_SOCKET_URL=https://your-domain.com:3101
+TURN_USERNAME=your-turn-username
+TURN_CREDENTIAL=your-turn-credential
+JWT_SECRET=your-jwt-secret
+EOF
 
-# 安装依赖
-pnpm install
+# 启动所有服务
+docker-compose up -d
 
-# 构建所有服务
-pnpm build
-```
+# 查看服务状态
+docker-compose ps
 
-#### 3. 使用 PM2 运行
-
-创建 `ecosystem.config.js`（已存在）并运行：
-
+# 查看日志
+docker-compose logs -f web
+docker-compose logs -f signaling
 ```bash
 # 启动所有服务
 pm2 start ecosystem.config.js
