@@ -1,0 +1,36 @@
+{
+  "name": "minichat",
+  "version": "1.0.0",
+  "description": "Video chat platform with microservices architecture",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --parallel -r start",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "keywords": [
+    "video-chat",
+    "webrtc",
+    "nestjs",
+    "nextjs",
+    "microservices"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}
