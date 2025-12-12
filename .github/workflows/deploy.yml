@@ -1,110 +1,247 @@
-name: Build Next.js and Deploy to Aliyun ECS
+name: Build and Deploy MiniChat to Aliyun ECS
 
 on:
   push:
-    branches: [ main ] # 指定触发分支，可根据需要修改
+    branches: [ master ]
+    paths:
+      - 'apps/**'
+      - 'libs/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: '选择要部署的服务 (web/signaling/gateway/all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - web
+          - signaling
+          - gateway
 
 env:
-  # 定义全局环境变量，方便统一修改
-  REGISTRY: crpi-zpvonb2nha7j0qgy.cn-shenzhen.personal.cr.aliyuncs.com  # 阿里云容器镜像服务（ACR）注册表地址:cite[2]:cite[5]
-  IMAGE_NAMESPACE: cc4ever  # 在阿里云ACR中创建的命名空间:cite[5]
-  APP_NAME: web-intro  # 应用名称
+  REGISTRY: crpi-zpvonb2nha7j0qgy.cn-shenzhen.personal.cr.aliyuncs.com
+  IMAGE_NAMESPACE: cc4ever
+  WEB_APP_NAME: minichat-web
+  SIGNALING_APP_NAME: minichat-signaling
+  GATEWAY_APP_NAME: minichat-gateway
 
 jobs:
-  build-and-push-docker:
+  # 检测哪些服务发生了变化
+  detect-changes:
     runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      signaling: ${{ steps.filter.outputs.signaling }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      manual_service: ${{ github.event.inputs.service }}
     steps:
-      # 步骤1: 检出代码
       - name: Checkout code
         uses: actions/checkout@v3
+      
+      - name: Check changed files
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'pnpm-lock.yaml'
+            signaling:
+              - 'apps/signaling/**'
+              - 'libs/common/**'
+              - 'pnpm-lock.yaml'
+            gateway:
+              - 'apps/gateway/**'
+              - 'libs/common/**'
+              - 'pnpm-lock.yaml'
 
-      # 步骤2: 设置 Node.js 环境
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    strategy:
+      matrix:
+        service: [web, signaling, gateway]
+    steps:
+      # 检查是否需要构建此服务
+      - name: Check if build needed
+        id: should_build
+        run: |
+          # 手动触发时
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MANUAL_SERVICE="${{ needs.detect-changes.outputs.manual_service }}"
+            if [ "$MANUAL_SERVICE" = "all" ] || [ "$MANUAL_SERVICE" = "${{ matrix.service }}" ]; then
+              echo "build=true" >> $GITHUB_OUTPUT
+            else
+              echo "build=false" >> $GITHUB_OUTPUT
+            fi
+          # 自动触发时，检查文件变化
+          else
+            if [ "${{ matrix.service }}" = "web" ] && [ "${{ needs.detect-changes.outputs.web }}" = "true" ]; then
+              echo "build=true" >> $GITHUB_OUTPUT
+            elif [ "${{ matrix.service }}" = "signaling" ] && [ "${{ needs.detect-changes.outputs.signaling }}" = "true" ]; then
+              echo "build=true" >> $GITHUB_OUTPUT
+            elif [ "${{ matrix.service }}" = "gateway" ] && [ "${{ needs.detect-changes.outputs.gateway }}" = "true" ]; then
+              echo "build=true" >> $GITHUB_OUTPUT
+            else
+              echo "build=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      # 步骤1: 检出代码
+      - name: Checkout code
+        if: steps.should_build.outputs.build == 'true'
+        uses: actions/checkout@v3
+
+      # 步骤2: 设置 pnpm
+      - name: Setup pnpm
+        if: steps.should_build.outputs.build == 'true'
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      # 步骤3: 设置 Node.js 环境
       - name: Setup Node.js
+        if: steps.should_build.outputs.build == 'true'
         uses: actions/setup-node@v3
         with:
-          node-version: '20' # 与本地开发环境保持一致
-          cache: 'npm'
+          node-version: '20'
+          cache: 'pnpm'
 
-      # 步骤3: 安装依赖并构建 Next.js (standalone 模式)
-      - name: Install dependencies and build
-        run: |
-          npm ci
-          npm run build
-
-      # 步骤4: 准备 Docker 构建上下文
-      - name: Prepare Docker context
-        run: |
-          # 创建存放构建产物的目录
-          mkdir -p docker-build-context
-          # 复制 standalone 模式生成的所有运行文件（包括隐藏文件）
-          shopt -s dotglob  # 启用隐藏文件匹配
-          cp -r .next/standalone/* docker-build-context/
-          shopt -u dotglob  # 关闭隐藏文件匹配
-          # 复制自定义 server.js（覆盖 standalone 自动生成的）
-          cp server.js docker-build-context/
-          # 复制静态资源（standalone 不包含静态文件）
-          if [ -d ".next/static" ]; then
-            echo "复制静态文件..."
-            cp -r .next/static docker-build-context/.next/
-          else
-            echo "Warning: No static files found"
-          fi
-          # 复制 public 目录
-          cp -r public docker-build-context/ 2>/dev/null || true
-          # 查看目录结构，用于调试
-          echo "=== Docker build context structure ==="
-          ls -la docker-build-context/
-          echo "=== .next directory ==="
-          ls -la docker-build-context/.next/ 2>/dev/null || echo "No .next directory"
-          echo "=== .next/server directory ==="  
-          ls -la docker-build-context/.next/server/ 2>/dev/null || echo "No .next/server directory"
-          echo "=== Socket.IO modules ==="
-          ls -la docker-build-context/node_modules/socket.io/ 2>/dev/null || echo "No socket.io"
-
-      # 步骤5: 登录阿里云 Docker Registry
+      # 步骤4: 登录阿里云 Docker Registry
       - name: Login to Aliyun Container Registry
+        if: steps.should_build.outputs.build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.ALIYUN_DOCKER_USERNAME }} # 阿里云注册表用户名:cite[5]
-          password: ${{ secrets.ALIYUN_DOCKER_PASSWORD }} # 阿里云注册表密码:cite[5]
+          username: ${{ secrets.ALIYUN_DOCKER_USERNAME }}
+          password: ${{ secrets.ALIYUN_DOCKER_PASSWORD }}
+
+      # 步骤5: 设置镜像名称
+      - name: Set image name
+        if: steps.should_build.outputs.build == 'true'
+        id: image
+        run: |
+          if [ "${{ matrix.service }}" = "web" ]; then
+            echo "name=${{ env.WEB_APP_NAME }}" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.service }}" = "signaling" ]; then
+            echo "name=${{ env.SIGNALING_APP_NAME }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ env.GATEWAY_APP_NAME }}" >> $GITHUB_OUTPUT
+          fi
 
       # 步骤6: 构建并推送 Docker 镜像
-      - name: Build and push Docker image
+      - name: Build and push ${{ matrix.service }} image
+        if: steps.should_build.outputs.build == 'true'
         run: |
-          # 使用 Git 提交的 SHA 作为镜像标签，确保唯一性:cite[4]
+          IMAGE_TAG=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ steps.image.outputs.name }}:${GITHUB_SHA:0:8}
+          IMAGE_LATEST=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ steps.image.outputs.name }}:latest
+          
+          echo "🔨 构建 ${{ matrix.service }} 服务镜像..."
           docker build \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:${GITHUB_SHA:0:8} \
-            -f script/Dockerfile docker-build-context
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:${GITHUB_SHA:0:8}
+            -t $IMAGE_TAG \
+            -t $IMAGE_LATEST \
+            -f apps/${{ matrix.service }}/Dockerfile \
+            --build-arg SERVICE_NAME=${{ matrix.service }} \
+            .
+          
+          echo "📤 推送镜像到阿里云..."
+          docker push $IMAGE_TAG
+          docker push $IMAGE_LATEST
+          
+          echo "✅ ${{ matrix.service }} 镜像构建完成: $IMAGE_LATEST"
 
-          # 同时标记为 latest（可选，便于快速部署）
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:${GITHUB_SHA:0:8} ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:latest
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:latest
-
-  # # 部署到阿里云 ECS 服务器（可选，如果希望 Actions 自动部署）
   # deploy-to-ecs:
   #   runs-on: ubuntu-latest
-  #   needs: build-and-push-docker # 依赖构建任务，确保先构建镜像
+  #   needs: [detect-changes, build-and-push]
   #   steps:
-  #     # 使用 SSH 动作连接到 ECS 并执行部署命令:cite[1]:cite[4]
   #     - name: Deploy to Aliyun ECS via SSH
   #       uses: appleboy/ssh-action@v0.1.9
   #       with:
-  #         host: ${{ secrets.ECS_HOST }} # ECS 服务器的公网 IP
-  #         username: ${{ secrets.ECS_USERNAME }} # 登录用户名，如 root, ecs-user, 或 ubuntu
-  #         key: ${{ secrets.ECS_SSH_PRIVATE_KEY }} # 用于认证的 SSH 私钥
+  #         host: ${{ secrets.ECS_HOST }}
+  #         username: ${{ secrets.ECS_USERNAME }}
+  #         key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
   #         script: |
-  #           # 登录阿里云容器镜像服务:cite[4]
+  #           # 登录阿里云容器镜像服务
   #           docker login --username=${{ secrets.ALIYUN_DOCKER_USERNAME }} --password=${{ secrets.ALIYUN_DOCKER_PASSWORD }} ${{ env.REGISTRY }}
-  #           # 拉取最新的镜像:cite[1]
-  #           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:latest
-  #           # 停止并移除旧的容器（如果存在）
-  #           docker stop ${{ env.APP_NAME }} || true
-  #           docker rm ${{ env.APP_NAME }} || true
-  #           # 运行新的容器，传入环境变量:cite[1]
-  #           docker run -d -p 3000:3000 \
-  #             --name ${{ env.APP_NAME }} \
-  #             --restart unless-stopped \
-  #             -e AI_302_API_KEY="${{ secrets.AI_302_API_KEY }}" \
-  #             ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}:latest
+            
+  #           # 切换到项目目录
+  #           cd /opt/minichat || mkdir -p /opt/minichat && cd /opt/minichat
+            
+  #           # 创建 docker-compose.yml（如果不存在）
+  #           cat > docker-compose.yml << 'EOF'
+  #           version: '3.8'
+  #           services:
+  #             web:
+  #               image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.WEB_APP_NAME }}:latest
+  #               container_name: minichat-web
+  #               restart: unless-stopped
+  #               ports:
+  #                 - "3100:3100"
+  #               environment:
+  #                 - NODE_ENV=production
+  #                 - NEXT_PUBLIC_SOCKET_URL=http://your-domain.com:3101
+  #               depends_on:
+  #                 - signaling
+              
+  #             signaling:
+  #               image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.SIGNALING_APP_NAME }}:latest
+  #               container_name: minichat-signaling
+  #               restart: unless-stopped
+  #               ports:
+  #                 - "3101:3101"
+  #               environment:
+  #                 - NODE_ENV=production
+  #                 - PORT=3101
+  #                 - CORS_ORIGIN=http://your-domain.com:3100
+              
+  #             gateway:
+  #               image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.GATEWAY_APP_NAME }}:latest
+  #               container_name: minichat-gateway
+  #               restart: unless-stopped
+  #               ports:
+  #                 - "4000:4000"
+  #               environment:
+  #                 - NODE_ENV=production
+  #                 - PORT=4000
+  #                 - JWT_SECRET=${{ secrets.JWT_SECRET }}
+  #                 - DATABASE_URL=${{ secrets.DATABASE_URL }}
+  #           EOF
+            
+  #           # 判断需要更新哪些服务
+  #           SERVICES_TO_UPDATE=""
+            
+  #           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+  #             # 手动触发
+  #             MANUAL_SERVICE="${{ needs.detect-changes.outputs.manual_service }}"
+  #             if [ "$MANUAL_SERVICE" = "all" ]; then
+  #               SERVICES_TO_UPDATE="web signaling gateway"
+  #             else
+  #               SERVICES_TO_UPDATE="$MANUAL_SERVICE"
+  #             fi
+  #           else
+  #             # 自动触发，根据文件变化更新
+  #             [ "${{ needs.detect-changes.outputs.web }}" = "true" ] && SERVICES_TO_UPDATE="$SERVICES_TO_UPDATE web"
+  #             [ "${{ needs.detect-changes.outputs.signaling }}" = "true" ] && SERVICES_TO_UPDATE="$SERVICES_TO_UPDATE signaling"
+  #             [ "${{ needs.detect-changes.outputs.gateway }}" = "true" ] && SERVICES_TO_UPDATE="$SERVICES_TO_UPDATE gateway"
+  #           fi
+            
+  #           echo "🚀 准备更新服务: $SERVICES_TO_UPDATE"
+            
+  #           # 拉取并重启对应的服务
+  #           for service in $SERVICES_TO_UPDATE; do
+  #             echo "📦 拉取 $service 最新镜像..."
+  #             docker-compose pull $service
+              
+  #             echo "🔄 重启 $service 服务..."
+  #             docker-compose up -d --no-deps $service
+              
+  #             echo "✅ $service 服务已更新"
+  #           done
+            
+  #           # 清理未使用的镜像
+  #           docker image prune -f
+            
+  #           echo "🎉 部署完成！"

@@ -13,8 +13,17 @@
     "start": "pnpm --parallel -r start",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
+    "docker:build": "docker build -t minichat-web:latest -f apps/web/Dockerfile . && docker build -t minichat-signaling:latest -f apps/signaling/Dockerfile . && docker build -t minichat-gateway:latest -f apps/gateway/Dockerfile .",
+    "docker:build:web": "docker build -t minichat-web:latest -f apps/web/Dockerfile .",
+    "docker:build:signaling": "docker build -t minichat-signaling:latest -f apps/signaling/Dockerfile .",
+    "docker:build:gateway": "docker build -t minichat-gateway:latest -f apps/gateway/Dockerfile .",
+    "docker:test": "docker-compose -f docker-compose.test.yml up -d",
+    "docker:test:down": "docker-compose -f docker-compose.test.yml down",
+    "docker:test:logs": "docker-compose -f docker-compose.test.yml logs -f",
     "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:ps": "docker-compose ps"
   },
   "keywords": [
     "video-chat",

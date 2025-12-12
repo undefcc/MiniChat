@@ -1,38 +1,51 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 
-// ICE 服务器配置
-const ICE_SERVERS = [
-  // STUN 服务器
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'stun:stun4.l.google.com:19302' },
-  // TURN 服务器（Metered.ca 免费 TURN）
-  {
-    urls: "stun:stun.relay.metered.ca:80",
-  },
-  {
-    urls: "turn:global.relay.metered.ca:80",
-    username: "9d27597c98c7229fc242d1f6",
-    credential: "fF6sGahr0DF+3BrN",
-  },
-  {
-    urls: "turn:global.relay.metered.ca:80?transport=tcp",
-    username: "9d27597c98c7229fc242d1f6",
-    credential: "fF6sGahr0DF+3BrN",
-  },
-  {
-    urls: "turn:global.relay.metered.ca:443",
-    username: "9d27597c98c7229fc242d1f6",
-    credential: "fF6sGahr0DF+3BrN",
-  },
-  {
-    urls: "turns:global.relay.metered.ca:443?transport=tcp",
-    username: "9d27597c98c7229fc242d1f6",
-    credential: "fF6sGahr0DF+3BrN",
-  },
-]
+// ICE 服务器配置（从环境变量读取）
+const getIceServers = () => {
+  const servers: RTCIceServer[] = [
+    // STUN 服务器（免费公共服务）
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ]
+
+  // TURN 服务器配置（从环境变量读取，避免硬编码凭证）
+  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME
+  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
+
+  if (turnUsername && turnCredential) {
+    servers.push(
+      {
+        urls: "stun:stun.relay.metered.ca:80",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80",
+        username: turnUsername,
+        credential: turnCredential,
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: turnUsername,
+        credential: turnCredential,
+      },
+      {
+        urls: "turn:global.relay.metered.ca:443",
+        username: turnUsername,
+        credential: turnCredential,
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: turnUsername,
+        credential: turnCredential,
+      }
+    )
+  } else {
+    console.warn('TURN server credentials not configured. Only STUN will be available.')
+  }
+
+  return servers
+}
+
+const ICE_SERVERS = getIceServers()
 
 export function useWebRTC() {
   const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null)

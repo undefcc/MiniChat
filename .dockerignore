@@ -1,0 +1,60 @@
+# 依赖（Docker 构建时会重新安装）
+**/node_modules
+node_modules
+.pnp
+.pnp.js
+
+# 构建产物
+dist
+.next
+out
+build
+
+# 环境变量（敏感信息）
+.env.local
+.env.*.local
+
+# 日志
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 测试
+coverage
+.nyc_output
+*.test.ts
+*.spec.ts
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Git
+.git
+
+# 文档
+README.md
+DEPLOYMENT.md
+QUICKSTART.md
+docs/
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# 其他
+*.pem
+.cache
+.turbo
