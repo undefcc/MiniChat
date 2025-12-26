@@ -102,6 +102,12 @@ jobs:
         with:
           version: 8
 
+      # 确保 pnpm store 目录存在，避免 cache 动作提示路径不存在
+      - name: Ensure pnpm store dir exists
+        if: steps.should_build.outputs.build == 'true'
+        run: |
+          mkdir -p "$(pnpm store path 2>/dev/null || echo ~/.pnpm-store/v3)"
+
       # 步骤3: 设置 Node.js 环境
       - name: Setup Node.js
         if: steps.should_build.outputs.build == 'true'
