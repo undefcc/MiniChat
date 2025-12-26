@@ -1,0 +1,2 @@
+# Keep this directory in git and Docker builds
+# Place static assets here so Next.js serves them from /public
