@@ -40,9 +40,12 @@ pipeline {
                         echo "登录到 Docker Registry..."
                         docker login --username=$ALIYUN_DOCKER_USERNAME --password=$ALIYUN_DOCKER_PASSWORD \$REGISTRY
                         
+                        # 清理旧镜像缓存，强制拉取最新
+                        echo "清理旧镜像..."
+                        docker rmi \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest 2>/dev/null || true
+                        
                         # 拉取最新镜像
-                        echo "拉取镜像..."
-                        # docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest
+                        echo "拉取最新镜像..."
                         docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest
                         
                         # 创建网络（如果不存在）
@@ -72,7 +75,7 @@ pipeline {
                         #   --restart unless-stopped \\
                         #   \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest
                         
-                        # 启动 Web（standalone 模式，server.js 在 /app 根目录）
+                        # 启动 Web（使用 next start）
                         echo "启动 Web..."
                         docker run -d \\
                           --name minichat-web \\
@@ -85,8 +88,7 @@ pipeline {
                           -e NEXT_PUBLIC_TURN_CREDENTIAL=$TURN_CREDENTIAL \\
                           -p 3100:3100 \\
                           --restart unless-stopped \\
-                          \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest \\
-                          node server.js
+                          \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest
                         
                         # 检查服务状态
                         echo "检查服务状态..."

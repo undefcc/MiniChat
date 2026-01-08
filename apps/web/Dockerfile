@@ -29,14 +29,16 @@ ENV HOSTNAME="0.0.0.0"
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# 复制 standalone 输出（包含所有必需的 node_modules）
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+# 不使用 standalone，直接复制构建产物和依赖
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web ./apps/web
 
 USER nextjs
 
+WORKDIR /app/apps/web
+
 EXPOSE 3100
 
-# standalone 输出的 server.js 在根目录
-CMD ["node", "server.js"]
+# 使用 next start 而不是 standalone
+CMD ["node_modules/.bin/next", "start", "-p", "3100"]
