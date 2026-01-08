@@ -1,180 +1,161 @@
+// Jenkinsfile: 拉取阿里云镜像并部署 MiniChat（简化版：仅 signaling + web）
+// 查看容器环境变量: docker exec minichat-web env
+// 查看容器日志: docker logs minichat-web
 pipeline {
     agent any
-    
     environment {
-        // 阿里云镜像仓库配置
         REGISTRY = 'crpi-zpvonb2nha7j0qgy.cn-shenzhen.personal.cr.aliyuncs.com'
-        NAMESPACE = 'cc4ever'
-        
-        // 镜像名称
-        WEB_IMAGE = "${REGISTRY}/${NAMESPACE}/minichat-web:latest"
-        SIGNALING_IMAGE = "${REGISTRY}/${NAMESPACE}/minichat-signaling:latest"
-        GATEWAY_IMAGE = "${REGISTRY}/${NAMESPACE}/minichat-gateway:latest"
-        
-        // Docker Compose 文件
-        COMPOSE_FILE = 'docker-compose.yml'
-        
-        // 项目目录
-        PROJECT_DIR = '/opt/minichat'
+        IMAGE_NAMESPACE = 'cc4ever'
+        ECS_HOST = '47.115.57.172' // 替换为实际 ECS 公网IP
+        ECS_USER = 'root' // 或 ubuntu/ecs-user
     }
-    
     stages {
-        stage('准备环境') {
+        stage('Prepare Deployment') {
             steps {
                 script {
-                    echo '检查 Docker 和 Docker Compose...'
-                    sh 'docker --version'
-                    sh 'docker-compose --version'
+                    echo "准备部署 MiniChat 到 ECS..."
+                    echo "Registry: ${REGISTRY}"
+                    echo "ECS Host: ${ECS_HOST}"
                 }
             }
         }
-        
-        stage('登录阿里云镜像仓库') {
+        stage('Deploy to ECS') {
             steps {
-                script {
-                    echo '登录阿里云容器镜像服务...'
-                    withCredentials([usernamePassword(
-                        credentialsId: 'aliyun-docker-registry',
-                        usernameVariable: 'DOCKER_USERNAME',
-                        passwordVariable: 'DOCKER_PASSWORD'
-                    )]) {
-                        sh """
-                            echo \$DOCKER_PASSWORD | docker login ${REGISTRY} \\
-                                --username \$DOCKER_USERNAME \\
-                                --password-stdin
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('拉取最新镜像') {
-            steps {
-                script {
-                    echo '拉取最新的 Docker 镜像...'
-                    sh "docker pull ${WEB_IMAGE}"
-                    sh "docker pull ${SIGNALING_IMAGE}"
-                    sh "docker pull ${GATEWAY_IMAGE}"
-                }
-            }
-        }
-        
-        stage('拉取代码') {
-            steps {
-                script {
-                    echo '从 GitHub 拉取最新代码...'
-                    sh """
-                        if [ -d ${PROJECT_DIR}/.git ]; then
-                            cd ${PROJECT_DIR}
-                            git pull origin master
-                        else
-                            rm -rf ${PROJECT_DIR}
-                            git clone https://github.com/undefcc/MiniChat.git ${PROJECT_DIR}
-                        fi
-                    """
-                }
-            }
-        }
-        
-        stage('准备环境变量') {
-            steps {
-                script {
-                    echo '创建 .env 配置文件...'
-                    withCredentials([
-                        string(credentialsId: 'minichat-cors-origin', variable: 'CORS_ORIGIN'),
-                        string(credentialsId: 'minichat-socket-url', variable: 'SOCKET_URL'),
-                        string(credentialsId: 'minichat-turn-username', variable: 'TURN_USER'),
-                        string(credentialsId: 'minichat-turn-credential', variable: 'TURN_CRED'),
-                        string(credentialsId: 'minichat-jwt-secret', variable: 'JWT_SEC')
-                    ]) {
-                        sh """
-                            cat > ${PROJECT_DIR}/.env << EOF
-CORS_ORIGIN=${CORS_ORIGIN}
-NEXT_PUBLIC_SOCKET_URL=${SOCKET_URL}
-TURN_USERNAME=${TURN_USER}
-TURN_CREDENTIAL=${TURN_CRED}
-JWT_SECRET=${JWT_SEC}
+                withCredentials([
+                    usernamePassword(credentialsId: 'aliyun-docker', usernameVariable: 'ALIYUN_DOCKER_USERNAME', passwordVariable: 'ALIYUN_DOCKER_PASSWORD'),
+                    sshUserPrivateKey(credentialsId: 'ecs-server-key', keyFileVariable: 'SSH_KEY'),
+                    string(credentialsId: 'minichat-turn-username', variable: 'TURN_USERNAME'),
+                    string(credentialsId: 'minichat-turn-credential', variable: 'TURN_CREDENTIAL'),
+                    string(credentialsId: 'minichat-cors-origin', variable: 'CORS_ORIGIN'),
+                    string(credentialsId: 'minichat-socket-url', variable: 'SOCKET_URL')
+                ]) {
+                    sh '''
+                    # 部署应用
+                    ssh -i $SSH_KEY -o StrictHostKeyChecking=no $ECS_USER@$ECS_HOST bash << EOF
+                        # 设置环境变量
+                        export REGISTRY="$REGISTRY"
+                        export IMAGE_NAMESPACE="$IMAGE_NAMESPACE"
+                        
+                        # 登录到阿里云 Docker Registry
+                        echo "登录到 Docker Registry..."
+                        docker login --username=$ALIYUN_DOCKER_USERNAME --password=$ALIYUN_DOCKER_PASSWORD \$REGISTRY
+                        
+                        # 拉取最新镜像
+                        echo "拉取镜像..."
+                        # docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest
+                        docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest
+                        
+                        # 创建网络（如果不存在）
+                        echo "创建 Docker 网络..."
+                        docker network create minichat-network || echo "网络已存在"
+                        
+                        # 停止并删除旧容器
+                        echo "停止旧容器..."
+                        docker stop minichat-web 2>/dev/null || true
+                        docker rm minichat-web 2>/dev/null || true
+                        # docker stop minichat-signaling 2>/dev/null || true
+                        # docker rm minichat-signaling 2>/dev/null || true
+                        
+                        # 验证镜像
+                        echo "验证镜像..."
+                        docker images | grep minichat-web
+                        
+                        # # 启动 Signaling（镜像不存在，暂时注释）
+                        # echo "启动 Signaling..."
+                        # docker run -d \\
+                        #   --name minichat-signaling \\
+                        #   --network minichat-network \\
+                        #   -e NODE_ENV=production \\
+                        #   -e PORT=3101 \\
+                        #   -e CORS_ORIGIN=$CORS_ORIGIN \\
+                        #   -p 3101:3101 \\
+                        #   --restart unless-stopped \\
+                        #   \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest
+                        
+                        # 启动 Web（standalone 模式，server.js 在 /app 根目录）
+                        echo "启动 Web..."
+                        docker run -d \\
+                          --name minichat-web \\
+                          --network minichat-network \\
+                          -e NODE_ENV=production \\
+                          -e PORT=3100 \\
+                          -e HOSTNAME=0.0.0.0 \\
+                          -e NEXT_PUBLIC_SOCKET_URL=$SOCKET_URL \\
+                          -e NEXT_PUBLIC_TURN_USERNAME=$TURN_USERNAME \\
+                          -e NEXT_PUBLIC_TURN_CREDENTIAL=$TURN_CREDENTIAL \\
+                          -p 3100:3100 \\
+                          --restart unless-stopped \\
+                          \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest \\
+                          node server.js
+                        
+                        # 检查服务状态
+                        echo "检查服务状态..."
+                        sleep 5
+                        docker ps --filter "name=minichat-"
+                        
+                        echo "部署完成！"
 EOF
-                        """
-                    }
+                    '''
                 }
             }
         }
-        
-        stage('停止旧容器') {
+        stage('Health Check') {
             steps {
-                script {
-                    echo '停止并移除旧的容器...'
-                    sh """
-                        cd ${PROJECT_DIR}
-                        docker-compose down || true
-                    """
-                }
-            }
-        }
-        
-        stage('启动服务') {
-            steps {
-                script {
-                    echo '启动所有服务...'
-                    sh """
-                        cd ${PROJECT_DIR}
-                        docker-compose up -d
-                    """
-                }
-            }
-        }
-        
-        stage('健康检查') {
-            steps {
-                script {
-                    echo '等待服务启动...'
-                    sleep(time: 10, unit: 'SECONDS')
-                    
-                    echo '检查服务状态...'
-                    sh """
-                        cd ${PROJECT_DIR}
-                        docker-compose ps
-                    """
-                    
-                    echo '检查日志...'
-                    sh """
-                        cd ${PROJECT_DIR}
-                        docker-compose logs --tail=20
-                    """
-                }
-            }
-        }
-        
-        stage('清理旧镜像') {
-            steps {
-                script {
-                    echo '清理未使用的 Docker 镜像...'
-                    sh 'docker image prune -af --filter "until=24h" || true'
+                withCredentials([
+                    sshUserPrivateKey(credentialsId: 'ecs-server-key', keyFileVariable: 'SSH_KEY')
+                ]) {
+                    sh '''
+                    ssh -i $SSH_KEY -o StrictHostKeyChecking=no $ECS_USER@$ECS_HOST << EOF
+                        echo "检查容器健康状态..."
+                        docker ps --filter "name=minichat-" --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"
+                        
+                        # echo ""
+                        # echo "检查 signaling 服务..."
+                        # docker logs --tail 20 minichat-signaling || echo "signaling 日志获取失败"
+                        
+                        echo ""
+                        echo "检查 web 服务..."
+                        docker logs --tail 20 minichat-web || echo "web 日志获取失败"
+EOF
+                    '''
                 }
             }
         }
     }
-    
     post {
         success {
-            echo '✅ 部署成功！'
-            echo "Web 服务: http://YOUR_SERVER:3100"
-            echo "Signaling 服务: http://YOUR_SERVER:3101"
-            echo "Gateway 服务: http://YOUR_SERVER:4000"
+            echo '✅ MiniChat 部署成功！'
+            echo '访问地址: http://47.115.57.172:3100'
+            // echo '信令服务: ws://47.115.57.172:3101'
         }
-        
         failure {
-            echo '❌ 部署失败！请检查日志。'
-            sh """
-                cd ${PROJECT_DIR}
-                docker-compose logs --tail=50
-            """ 
-        }
-        
-        always {
-            echo '登出 Docker Registry...'
-            sh 'docker logout ${REGISTRY} || true'
+            echo '❌ 部署失败！'
+            withCredentials([
+                sshUserPrivateKey(credentialsId: 'ecs-server-key', keyFileVariable: 'SSH_KEY')
+            ]) {
+                sh '''
+                ssh -i $SSH_KEY -o StrictHostKeyChecking=no $ECS_USER@$ECS_HOST << EOF
+                    echo "显示错误日志..."
+                    echo "所有 minichat 容器状态:"
+                    docker ps -a --filter "name=minichat-" || echo "未找到 minichat 相关容器"
+                    
+                    echo ""
+                    echo "查看容器日志:"
+                    for container in minichat-web; do
+                        if docker ps -a --format "{{.Names}}" | grep -q "^\$container\$"; then
+                            echo "=== \$container 日志 ==="
+                            docker logs --tail 30 \$container 2>&1 || echo "无法获取日志"
+                        fi
+                    done
+                    # for container in minichat-signaling; do
+                    #     if docker ps -a --format "{{.Names}}" | grep -q "^\$container\$"; then
+                    #         echo "=== \$container 日志 ==="
+                    #         docker logs --tail 30 \$container 2>&1 || echo "无法获取日志"
+                    #     fi
+                    # done
+EOF
+                '''
+            }
         }
     }
 }

@@ -26,12 +26,17 @@ ENV NODE_ENV=production
 ENV PORT=3100
 ENV HOSTNAME="0.0.0.0"
 
-# 复制 standalone 输出
-COPY --from=builder /app/apps/web/.next/standalone ./
-COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder /app/apps/web/public ./apps/web/public
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# 复制 standalone 输出（包含所有必需的 node_modules）
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+
+USER nextjs
 
 EXPOSE 3100
 
-# standalone 会生成完整的服务器文件
-CMD ["node", "apps/web/server.js"]
+# standalone 输出的 server.js 在根目录
+CMD ["node", "server.js"]
