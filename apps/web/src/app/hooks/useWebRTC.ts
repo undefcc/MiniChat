@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback } from 'react'
 
-// ICE 服务器配置（从环境变量读取）
+// ICE 服务器配置（从环境变量读取，Next.js 构建时内联）
 const getIceServers = () => {
   const servers: RTCIceServer[] = [
     // STUN 服务器（免费公共服务）
@@ -8,16 +8,14 @@ const getIceServers = () => {
     { urls: 'stun:stun1.l.google.com:19302' },
   ]
 
-  // TURN 服务器配置（从环境变量读取，避免硬编码凭证）
+  // TURN 服务器配置（从环境变量读取）
   const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME
   const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
 
   if (turnUsername && turnCredential) {
     console.log('🔧 [WebRTC] TURN server configured:', 'global.relay.metered.ca')
     servers.push(
-      {
-        urls: "stun:stun.relay.metered.ca:80",
-      },
+      { urls: "stun:stun.relay.metered.ca:80" },
       {
         urls: "turn:global.relay.metered.ca:80",
         username: turnUsername,
@@ -40,7 +38,8 @@ const getIceServers = () => {
       }
     )
   } else {
-    console.warn('⚠️ [WebRTC] TURN server credentials not configured. Only STUN will be available.')
+    console.warn('⚠️ [WebRTC] TURN server credentials not configured.')
+    console.warn('⚠️ [WebRTC] Set NEXT_PUBLIC_TURN_USERNAME and NEXT_PUBLIC_TURN_CREDENTIAL')
   }
 
   console.log('🔧 [WebRTC] ICE servers configured:', servers.length, 'servers')

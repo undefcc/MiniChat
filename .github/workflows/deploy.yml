@@ -146,12 +146,30 @@ jobs:
           IMAGE_LATEST=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ steps.image.outputs.name }}:latest
           
           echo "🔨 构建 ${{ matrix.service }} 服务镜像..."
-          docker build \
-            -t $IMAGE_TAG \
-            -t $IMAGE_LATEST \
-            -f apps/${{ matrix.service }}/Dockerfile \
-            --build-arg SERVICE_NAME=${{ matrix.service }} \
-            .
+          
+          # 为 web 服务生成 .env.production 文件（自动包含所有 NEXT_PUBLIC_ secrets）
+          if [ "${{ matrix.service }}" = "web" ]; then
+            echo "📝 生成环境变量文件..."
+            cat > apps/web/.env.production << EOF
+          NEXT_PUBLIC_TURN_USERNAME=${{ secrets.NEXT_PUBLIC_TURN_USERNAME }}
+          NEXT_PUBLIC_TURN_CREDENTIAL=${{ secrets.NEXT_PUBLIC_TURN_CREDENTIAL }}
+          NEXT_PUBLIC_SOCKET_URL=${{ secrets.NEXT_PUBLIC_SOCKET_URL }}
+          EOF
+            
+            docker build \
+              -t $IMAGE_TAG \
+              -t $IMAGE_LATEST \
+              -f apps/${{ matrix.service }}/Dockerfile \
+              --build-arg SERVICE_NAME=${{ matrix.service }} \
+              .
+          else
+            docker build \
+              -t $IMAGE_TAG \
+              -t $IMAGE_LATEST \
+              -f apps/${{ matrix.service }}/Dockerfile \
+              --build-arg SERVICE_NAME=${{ matrix.service }} \
+              .
+          fi
           
           echo "📤 推送镜像到阿里云..."
           docker push $IMAGE_TAG
