@@ -23,6 +23,7 @@ export function useVideoChat() {
   const { setupDataChannel, ...dataChannelRest } = useDataChannel()
   const signaling = useSocketSignaling()
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
+  const iceCandidateBufferRef = useRef<{ from: string; candidate: RTCIceCandidateInit }[]>([])
 
   // 创建房间
   const createRoom = useCallback(async () => {
@@ -43,6 +44,17 @@ export function useVideoChat() {
         })
         peerConnectionRef.current = pc
 
+        // 监听连接状态变化
+        pc.oniceconnectionstatechange = () => {
+          console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
+          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+            setCallStatus('connected')
+          } else if (pc.iceConnectionState === 'failed') {
+            console.error('❌ [ICE] Connection failed, attempting ICE restart...')
+            pc.restartIce()
+          }
+        }
+
         // 创建数据通道
         const channel = pc.createDataChannel('chat', { ordered: true })
         setupDataChannel(channel)
@@ -61,19 +73,39 @@ export function useVideoChat() {
         const pc = peerConnectionRef.current
         if (pc && pc.remoteDescription === null) {
           await pc.setRemoteDescription(new RTCSessionDescription(answer))
-          setCallStatus('connected')
+          console.log('✅ [VideoChat] Remote description set, processing buffered ICE candidates:', iceCandidateBufferRef.current.length)
+          
+          // 处理缓冲的 ICE 候选
+          for (const buffered of iceCandidateBufferRef.current) {
+            if (buffered.from === from) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(buffered.candidate))
+                console.log('✅ [ICE] Added buffered candidate')
+              } catch (err) {
+                console.error('❌ [ICE] Failed to add buffered candidate:', err)
+              }
+            }
+          }
+          iceCandidateBufferRef.current = []
+          setCallStatus('calling')
         }
       })
 
       signaling.onIce(async (from: string, candidate: RTCIceCandidateInit) => {
-        console.log('[VideoChat] Received ICE from:', from)
+        console.log('🧊 [ICE] Received candidate from:', from)
         const pc = peerConnectionRef.current
-        if (pc) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate))
-          } catch (err) {
-            console.error('Failed to add ICE candidate', err)
-          }
+        
+        if (!pc || !pc.remoteDescription) {
+          console.log('📦 [ICE] Buffering candidate (no remote description yet)')
+          iceCandidateBufferRef.current.push({ from, candidate })
+          return
+        }
+        
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate))
+          console.log('✅ [ICE] Candidate added successfully')
+        } catch (err) {
+          console.error('❌ [ICE] Failed to add candidate:', err)
         }
       })
 
@@ -116,6 +148,20 @@ export function useVideoChat() {
         })
         peerConnectionRef.current = pc
 
+        // 监听连接状态变化
+        pc.oniceconnectionstatechange = () => {
+          console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
+          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+            setCallStatus('connected')
+          } else if (pc.iceConnectionState === 'failed') {
+            console.error('❌ [ICE] Connection failed, attempting ICE restart...')
+            // ICE restart
+            pc.restartIce()
+          } else if (pc.iceConnectionState === 'disconnected') {
+            console.warn('⚠️ [ICE] Connection disconnected')
+          }
+        }
+
         // 监听数据通道
         pc.ondatachannel = (event) => {
           setupDataChannel(event.channel)
@@ -126,21 +172,43 @@ export function useVideoChat() {
 
         // 设置远程描述并创建 answer
         await pc.setRemoteDescription(new RTCSessionDescription(offer))
+        console.log('✅ [VideoChat] Remote description set, processing buffered ICE candidates:', iceCandidateBufferRef.current.length)
+        
+        // 处理缓冲的 ICE 候选
+        for (const buffered of iceCandidateBufferRef.current) {
+          if (buffered.from === from) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(buffered.candidate))
+              console.log('✅ [ICE] Added buffered candidate')
+            } catch (err) {
+              console.error('❌ [ICE] Failed to add buffered candidate:', err)
+            }
+          }
+        }
+        iceCandidateBufferRef.current = []
+        
         const answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
         signaling.sendAnswer(from, answer)
-        setCallStatus('connected')
+        setCallStatus('calling')
       })
 
       signaling.onIce(async (from: string, candidate: RTCIceCandidateInit) => {
-        console.log('[VideoChat] Received ICE from:', from)
+        console.log('🧊 [ICE] Received candidate from:', from)
         const pc = peerConnectionRef.current
-        if (pc) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate))
-          } catch (err) {
-            console.error('Failed to add ICE candidate', err)
-          }
+        
+        if (!pc || !pc.remoteDescription) {
+          // 缓冲 ICE 候选，等待 remoteDescription 设置后再添加
+          console.log('📦 [ICE] Buffering candidate (no remote description yet)')
+          iceCandidateBufferRef.current.push({ from, candidate })
+          return
+        }
+        
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate))
+          console.log('✅ [ICE] Candidate added successfully')
+        } catch (err) {
+          console.error('❌ [ICE] Failed to add candidate:', err)
         }
       })
 

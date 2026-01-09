@@ -13,6 +13,7 @@ const getIceServers = () => {
   const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
 
   if (turnUsername && turnCredential) {
+    console.log('🔧 [WebRTC] TURN server configured:', 'global.relay.metered.ca')
     servers.push(
       {
         urls: "stun:stun.relay.metered.ca:80",
@@ -39,9 +40,10 @@ const getIceServers = () => {
       }
     )
   } else {
-    console.warn('TURN server credentials not configured. Only STUN will be available.')
+    console.warn('⚠️ [WebRTC] TURN server credentials not configured. Only STUN will be available.')
   }
 
+  console.log('🔧 [WebRTC] ICE servers configured:', servers.length, 'servers')
   return servers
 }
 
@@ -99,29 +101,36 @@ export function useWebRTC() {
     onTrack: (event: RTCTrackEvent) => void,
     onIceCandidate: (candidate: RTCIceCandidate) => void
   ) => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+    console.log('🔧 [WebRTC] Creating PeerConnection with', ICE_SERVERS.length, 'ICE servers')
+    const pc = new RTCPeerConnection({ 
+      iceServers: ICE_SERVERS,
+      iceCandidatePoolSize: 10, // 预收集候选
+    })
 
     pc.ontrack = (event) => {
-      console.log('ontrack event:', event.track.kind, event.streams)
+      console.log('📡 [WebRTC] ontrack event:', event.track.kind, event.streams)
       onTrack(event)
     }
+    
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        // 打印 ICE 候选类型（用于调试）
-        console.log('ICE candidate:', event.candidate.type, event.candidate.candidate.substring(0, 50))
+        const type = event.candidate.type
+        const protocol = event.candidate.protocol
+        const address = event.candidate.address
+        console.log(`🧊 [ICE] Generated ${type} candidate (${protocol}):`, address || 'relay')
         onIceCandidate(event.candidate)
       } else {
-        console.log('ICE gathering complete')
+        console.log('✅ [ICE] Gathering complete')
       }
     }
     
     // ICE 收集状态变化
     pc.onicegatheringstatechange = () => {
-      console.log('ICE gathering state:', pc.iceGatheringState)
+      console.log('🔄 [ICE] Gathering state:', pc.iceGatheringState)
     }
 
     pc.oniceconnectionstatechange = () => {
-      console.log('ICE connection state:', pc.iceConnectionState)
+      console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setIsConnected(true)
       }
@@ -131,7 +140,7 @@ export function useWebRTC() {
     }
 
     pc.onconnectionstatechange = () => {
-      console.log('Connection state:', pc.connectionState)
+      console.log('🔗 [WebRTC] Connection state:', pc.connectionState)
     }
 
     // 不再预先添加 transceiver，改为在 addLocalStream 中统一处理
