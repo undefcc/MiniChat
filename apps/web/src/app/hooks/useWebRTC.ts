@@ -60,31 +60,36 @@ export function useWebRTC() {
   const startLocalStream = useCallback(async () => {
     try {
       // 先尝试获取视频和音频
+      console.log('📹 [WebRTC] Requesting video + audio...')
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true
       })
+      console.log('✅ [WebRTC] Got video + audio')
       setLocalStream(stream)
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
       }
       return stream
     } catch (error) {
-      console.error('Error accessing video/audio:', error)
+      console.error('❌ [WebRTC] Error accessing video/audio:', error)
       
       // 如果失败，尝试只获取音频
       try {
+        console.log('🎤 [WebRTC] Trying audio only...')
         const audioStream = await navigator.mediaDevices.getUserMedia({
           audio: true
         })
+        console.log('✅ [WebRTC] Got audio only, no video')
         setLocalStream(audioStream)
-        console.log('Only audio available, no video')
         return audioStream
       } catch (audioError) {
-        console.error('Error accessing audio:', audioError)
+        console.error('❌ [WebRTC] Error accessing audio:', audioError)
         // 即使没有媒体设备，也返回一个空流，允许纯数据通道连接
-        console.log('No media devices available, proceeding with data channel only')
-        return new MediaStream()
+        console.log('⚠️ [WebRTC] No media devices available, proceeding with receive-only mode')
+        const emptyStream = new MediaStream()
+        setLocalStream(emptyStream)
+        return emptyStream
       }
     }
   }, [])
@@ -168,11 +173,12 @@ export function useWebRTC() {
 
   // 处理远程流
   const handleRemoteTrack = useCallback((event: RTCTrackEvent) => {
-    console.log('handleRemoteTrack:', event.track.kind, 'streams:', event.streams.length)
+    console.log('📥 [WebRTC] handleRemoteTrack:', event.track.kind, 'readyState:', event.track.readyState, 'streams:', event.streams.length)
     
     // 使用 event.streams[0] 或创建/复用一个 MediaStream
     if (!remoteStreamRef.current) {
       remoteStreamRef.current = event.streams[0] || new MediaStream()
+      console.log('📥 [WebRTC] Created new remote stream')
     }
     
     const stream = remoteStreamRef.current
@@ -182,12 +188,24 @@ export function useWebRTC() {
       // 移除相同类型的旧 track（如果有）
       stream.getTracks()
         .filter(t => t.kind === event.track.kind)
-        .forEach(t => stream.removeTrack(t))
+        .forEach(t => {
+          console.log('📥 [WebRTC] Removing old track:', t.kind)
+          stream.removeTrack(t)
+        })
       stream.addTrack(event.track)
+      console.log('📥 [WebRTC] Added track:', event.track.kind, 'total tracks:', stream.getTracks().length)
     }
     
     // 强制触发 React 状态更新（创建新引用）
-    setRemoteStream(new MediaStream(stream.getTracks()))
+    const newStream = new MediaStream(stream.getTracks())
+    console.log('📥 [WebRTC] Updating remote stream state with tracks:', newStream.getTracks().map(t => t.kind).join(', '))
+    setRemoteStream(newStream)
+    
+    // 同时直接设置到 video 元素，确保显示
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = newStream
+      console.log('📥 [WebRTC] Set remote stream to video element')
+    }
   }, [])
 
   // 清理资源
