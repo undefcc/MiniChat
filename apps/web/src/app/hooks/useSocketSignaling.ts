@@ -80,10 +80,17 @@ export function useSocketSignaling(): SocketSignaling {
     
     return new Promise<void>((resolve) => {
       // 连接到 Socket.IO 服务器
-      // 生产环境通过 NEXT_PUBLIC_SOCKET_URL 配置，默认同域名 3101 端口
-      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL 
-        || `${window.location.protocol}//${window.location.hostname}:3101`
-      const socket = io(socketUrl, {
+      const envUrl = process.env.NEXT_PUBLIC_SOCKET_URL
+      const socketUrl = envUrl 
+        ? envUrl 
+        : (typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+            ? 'http://localhost:3101' 
+            : undefined) // undefined 表示使用同域名
+      
+      console.log('[Socket] Connecting to:', socketUrl || 'same-origin')
+      
+      const socket = io(socketUrl || '', {
+        path: '/socket.io/',
         transports: ['websocket'],
         reconnection: true,
         reconnectionAttempts: 5,
