@@ -8,7 +8,6 @@ pipeline {
         IMAGE_NAMESPACE = 'cc4ever'
         ECS_HOST = '47.115.57.172' // 替换为实际 ECS 公网IP
         ECS_USER = 'root' // 或 ubuntu/ecs-user
-        SOCKET_URL = "" // 留空使用同域名（通过 Nginx /socket.io/ 代理）
     }
     stages {
         stage('Prepare Deployment') {
@@ -91,7 +90,6 @@ pipeline {
                           -e NODE_ENV=production \\
                           -e PORT=3100 \\
                           -e HOSTNAME=0.0.0.0 \\
-                          -e NEXT_PUBLIC_SOCKET_URL=$SOCKET_URL \\
                           -p 3100:3100 \\
                           --restart unless-stopped \\
                           \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest
@@ -100,6 +98,10 @@ pipeline {
                         echo "检查服务状态..."
                         sleep 5
                         docker ps --filter "name=minichat-"
+                        
+                        # 清理悬空镜像（<none> 标签）
+                        echo "清理悬空镜像..."
+                        docker image prune -f
                         
                         echo "部署完成！"
 EOF
