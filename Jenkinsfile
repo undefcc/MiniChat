@@ -68,6 +68,10 @@ pipeline {
                         docker run -d \\
                           --name minichat-signaling \\
                           --network minichat-network \\
+                          --log-driver json-file \\
+                          --log-opt max-size=10m \\
+                          --log-opt max-file=3 \\
+                          --log-opt compress=true \\
                           -e NODE_ENV=production \\
                           -e PORT=3101 \\
                           -e CORS_ORIGIN=$CORS_ORIGIN \\
@@ -80,6 +84,10 @@ pipeline {
                         docker run -d \\
                           --name minichat-web \\
                           --network minichat-network \\
+                          --log-driver json-file \\
+                          --log-opt max-size=10m \\
+                          --log-opt max-file=3 \\
+                          --log-opt compress=true \\
                           -e NODE_ENV=production \\
                           -e PORT=3100 \\
                           -e HOSTNAME=0.0.0.0 \\
