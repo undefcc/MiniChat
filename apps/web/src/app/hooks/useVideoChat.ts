@@ -24,6 +24,8 @@ export function useVideoChat() {
   const signaling = useSocketSignaling()
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
   const iceCandidateBufferRef = useRef<{ from: string; candidate: RTCIceCandidateInit }[]>([])
+  const isHangingUpRef = useRef(false) // 防止挂断时触发重连
+  const hasCleanedUpRef = useRef(false) // 防止重复清理
 
   // 创建房间
   const createRoom = useCallback(async () => {
@@ -49,9 +51,11 @@ export function useVideoChat() {
           console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
           if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
             setCallStatus('connected')
-          } else if (pc.iceConnectionState === 'failed') {
+          } else if (pc.iceConnectionState === 'failed' && !isHangingUpRef.current) {
             console.error('❌ [ICE] Connection failed, attempting ICE restart...')
             pc.restartIce()
+          } else if (pc.iceConnectionState === 'failed' && isHangingUpRef.current) {
+            console.log('🚫 [ICE] Connection failed but user is hanging up, skip restart')
           }
         }
 
@@ -110,7 +114,18 @@ export function useVideoChat() {
       })
 
       signaling.onPeerDisconnected((peerId: string) => {
-        console.log('[VideoChat] Peer disconnected:', peerId)
+        console.log('👋 [VideoChat] Peer disconnected:', peerId)
+        if (hasCleanedUpRef.current) {
+          console.log('⏭️ [VideoChat] Already cleaned up, skipping')
+          return
+        }
+        // 清理连接资源
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.close()
+          peerConnectionRef.current = null
+        }
+        iceCandidateBufferRef.current = []
+        setRemotePeerId(null)
         setCallStatus('idle')
       })
 
@@ -153,10 +168,11 @@ export function useVideoChat() {
           console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
           if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
             setCallStatus('connected')
-          } else if (pc.iceConnectionState === 'failed') {
+          } else if (pc.iceConnectionState === 'failed' && !isHangingUpRef.current) {
             console.error('❌ [ICE] Connection failed, attempting ICE restart...')
-            // ICE restart
             pc.restartIce()
+          } else if (pc.iceConnectionState === 'failed' && isHangingUpRef.current) {
+            console.log('🚫 [ICE] Connection failed but user is hanging up, skip restart')
           } else if (pc.iceConnectionState === 'disconnected') {
             console.warn('⚠️ [ICE] Connection disconnected')
           }
@@ -213,7 +229,18 @@ export function useVideoChat() {
       })
 
       signaling.onPeerDisconnected((peerId: string) => {
-        console.log('[VideoChat] Peer disconnected:', peerId)
+        console.log('👋 [VideoChat] Peer disconnected:', peerId)
+        if (hasCleanedUpRef.current) {
+          console.log('⏭️ [VideoChat] Already cleaned up, skipping')
+          return
+        }
+        // 清理连接资源
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.close()
+          peerConnectionRef.current = null
+        }
+        iceCandidateBufferRef.current = []
+        setRemotePeerId(null)
         setCallStatus('idle')
       })
 
@@ -250,12 +277,39 @@ export function useVideoChat() {
 
   // 挂断
   const hangUp = useCallback(() => {
-    console.log('Hanging up...')
+    console.log('🔴 [VideoChat] Hanging up...')
+    
+    // 设置标记，防止触发重连和重复清理
+    isHangingUpRef.current = true
+    hasCleanedUpRef.current = true
+    
+    // 关闭 PeerConnection
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close()
+      peerConnectionRef.current = null
+    }
+    
+    // 清理缓冲区
+    iceCandidateBufferRef.current = []
+    
+    // 清理资源
     dataChannelRest.cleanup()
     webrtcCleanup()
+    
+    // 断开 Socket 连接
+    signaling.disconnect()
+    
+    // 重置状态
+    setRemotePeerId(null)
     setCallStatus('idle')
     setRoomId('')
-  }, [dataChannelRest, webrtcCleanup])
+    
+    // 重置标记（延迟以确保所有状态变化处理完成）
+    setTimeout(() => {
+      isHangingUpRef.current = false
+      hasCleanedUpRef.current = false
+    }, 1000)
+  }, [dataChannelRest, webrtcCleanup, signaling])
 
   return {
     roomId,
