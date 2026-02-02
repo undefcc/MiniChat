@@ -10,9 +10,14 @@ import {
 import { Server, Socket } from 'socket.io'
 import { RoomService } from './room.service'
 
+const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean)
+
 @WebSocketGateway({
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3100',
+    origin: CORS_ORIGINS,
     credentials: true,
   },
 })
@@ -42,6 +47,14 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
     const roomId = this.roomService.createRoom(client.id)
     client.join(roomId)
     return { roomId }
+  }
+
+  @SubscribeMessage('check-room')
+  handleCheckRoom(
+    @MessageBody() data: { roomId: string },
+  ) {
+    const room = this.roomService.getRoom(data.roomId)
+    return { exists: !!room }
   }
 
   @SubscribeMessage('join-room')

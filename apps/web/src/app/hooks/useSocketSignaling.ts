@@ -18,6 +18,7 @@ const handlers = {
 export type SocketSignaling = {
   connect: () => Promise<void>
   disconnect: () => void
+  checkRoom: (roomId: string) => Promise<boolean>
   createRoom: () => Promise<string>
   joinRoom: (roomId: string) => Promise<{ peers: string[] }>
   onOffer: (handler: (from: string, offer: RTCSessionDescriptionInit) => void) => void
@@ -69,7 +70,14 @@ export function useSocketSignaling(): SocketSignaling {
     if (globalSocket?.connected) return
     if (connecting) {
       // 等待现有连接完成
-      await new Promise(resolve => setTimeout(resolve, 100))
+      const startedAt = Date.now()
+      while (connecting) {
+        if (globalSocket?.connected) return
+        if (Date.now() - startedAt > 8000) {
+          throw new Error('Socket connect timeout (waiting for in-flight connect)')
+        }
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
       if (globalSocket?.connected) return
     }
     
@@ -78,20 +86,23 @@ export function useSocketSignaling(): SocketSignaling {
     // Dynamic import to avoid ESM/CJS issues with socket.io-client in Next.js
     const { io } = await import('socket.io-client')
     
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       // 连接到 Socket.IO 服务器
-      const envUrl = process.env.NEXT_PUBLIC_SOCKET_URL
-      const socketUrl = envUrl 
-        ? envUrl 
-        : (typeof window !== 'undefined' && window.location.hostname === 'localhost' 
-            ? 'http://localhost:3101' 
-            : undefined) // undefined 表示使用同域名
+      let socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL
+      
+      // 如果没有显式配置，自动构建 URL（支持 localhost 和 IP 访问）
+      if (!socketUrl && typeof window !== 'undefined') {
+        const protocol = window.location.protocol
+        const hostname = window.location.hostname
+        // 信令服务默认端口 3101
+        socketUrl = `${protocol}//${hostname}:3101`
+      }
       
       console.log('[Socket] Connecting to:', socketUrl || 'same-origin')
       
       const socket = io(socketUrl || '', {
         path: '/socket.io/',
-        transports: ['websocket'],
+        transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
@@ -100,16 +111,28 @@ export function useSocketSignaling(): SocketSignaling {
       globalSocket = socket
       setupSocketListeners(socket)
       
-      socket.on('connect', () => {
+      const cleanup = () => {
+        socket.off('connect', onConnect)
+        socket.off('connect_error', onConnectError)
+      }
+
+      const onConnect = () => {
         console.log('Socket.IO connected:', socket.id)
         connecting = false
+        cleanup()
         resolve()
-      })
-      
-      socket.on('connect_error', (err) => {
+      }
+
+      const onConnectError = (err: Error) => {
         console.error('Socket.IO connection error:', err.message)
         connecting = false
-      })
+        cleanup()
+        reject(err)
+      }
+
+      socket.on('connect', onConnect)
+      
+      socket.on('connect_error', onConnectError)
       
       socket.on('disconnect', (reason) => {
         console.log('Socket.IO disconnected:', reason)
@@ -119,9 +142,11 @@ export function useSocketSignaling(): SocketSignaling {
       setTimeout(() => {
         if (connecting) {
           connecting = false
-          resolve()
+          cleanup()
+          socket.disconnect()
+          reject(new Error('Socket connect timeout'))
         }
-      }, 5000)
+      }, 8000)
     })
   }, [])
 
@@ -143,7 +168,11 @@ export function useSocketSignaling(): SocketSignaling {
         return
       }
       console.log('[Socket] Creating room')
+      const timeout = setTimeout(() => {
+        reject(new Error('Create room timeout'))
+      }, 8000)
       globalSocket.emit('create-room', {}, (response: { roomId: string; error?: string }) => {
+        clearTimeout(timeout)
         if (response.error) {
           reject(new Error(response.error))
         } else {
@@ -161,13 +190,35 @@ export function useSocketSignaling(): SocketSignaling {
         return
       }
       console.log('[Socket] Joining room:', roomId)
+      const timeout = setTimeout(() => {
+        reject(new Error('Join room timeout'))
+      }, 8000)
       globalSocket.emit('join-room', { roomId }, (response: { roomId: string; peers: string[]; error?: string }) => {
+        clearTimeout(timeout)
         if (response.error) {
           reject(new Error(response.error))
         } else {
           console.log('[Socket] Joined room:', response.roomId, 'with peers:', response.peers)
           resolve({ peers: response.peers })
         }
+      })
+    })
+  }, [])
+
+  const checkRoom = useCallback(async (roomId: string): Promise<boolean> => {
+    return new Promise((resolve, reject) => {
+      if (!globalSocket) {
+        reject(new Error('Socket not connected'))
+        return
+      }
+      console.log('[Socket] Checking room:', roomId)
+      const timeout = setTimeout(() => {
+        reject(new Error('Check room timeout'))
+      }, 8000)
+      globalSocket.emit('check-room', { roomId }, (response: { exists: boolean }) => {
+        clearTimeout(timeout)
+        console.log('[Socket] Room exists:', response.exists)
+        resolve(response.exists)
       })
     })
   }, [])
@@ -211,6 +262,7 @@ export function useSocketSignaling(): SocketSignaling {
   return { 
     connect, 
     disconnect, 
+    checkRoom,
     createRoom, 
     joinRoom, 
     onOffer, 

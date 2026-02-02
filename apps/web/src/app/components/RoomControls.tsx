@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState } from 'react'
 import { Button } from '../../components/ui/button'
-import { Phone, Copy, Check, QrCode, Camera, X } from 'lucide-react'
+import { Phone, Copy, Check, QrCode } from 'lucide-react'
 import { Input } from '../../components/ui/input'
 import { Separator } from '../../components/ui/separator'
 import { useVideoChatContext } from '../context/VideoChatContext'
@@ -11,9 +11,6 @@ export function RoomControls() {
   const [isCopied, setIsCopied] = useState(false)
   const [joinRoomId, setJoinRoomId] = useState('')
   const [showQR, setShowQR] = useState(false)
-  const [showScanner, setShowScanner] = useState(false)
-  const scannerRef = useRef<HTMLDivElement>(null)
-  const html5QrCodeRef = useRef<any>(null)
 
   // 生成加入房间的 URL
   const getRoomUrl = () => {
@@ -35,94 +32,7 @@ export function RoomControls() {
     }
   }
 
-  // 启动扫码
-  const startScanner = async () => {
-    setShowScanner(true)
-    
-    // 动态导入 html5-qrcode
-    const { Html5Qrcode } = await import('html5-qrcode')
-    
-    // 等待 DOM 渲染
-    setTimeout(async () => {
-      if (!scannerRef.current) return
-      
-      try {
-        const html5QrCode = new Html5Qrcode('qr-reader')
-        html5QrCodeRef.current = html5QrCode
-        
-        await html5QrCode.start(
-          { facingMode: 'environment' },
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-          },
-          (decodedText) => {
-            // 解析 URL 或房间 ID
-            let extractedRoomId = decodedText
-            try {
-              const url = new URL(decodedText)
-              const roomParam = url.searchParams.get('room')
-              if (roomParam) {
-                extractedRoomId = roomParam
-              }
-            } catch {
-              // 不是 URL，直接使用作为房间 ID
-            }
-            
-            // 停止扫描并加入房间
-            stopScanner()
-            joinRoom(extractedRoomId)
-          },
-          () => {} // 忽略扫描错误
-        )
-      } catch (err) {
-        console.error('Failed to start scanner:', err)
-        alert('无法启动摄像头，请检查权限设置')
-        setShowScanner(false)
-      }
-    }, 100)
-  }
-
-  // 停止扫码
-  const stopScanner = () => {
-    if (html5QrCodeRef.current) {
-      html5QrCodeRef.current.stop().catch(() => {})
-      html5QrCodeRef.current = null
-    }
-    setShowScanner(false)
-  }
-
-  // 组件卸载时清理
-  useEffect(() => {
-    return () => {
-      if (html5QrCodeRef.current) {
-        html5QrCodeRef.current.stop().catch(() => {})
-      }
-    }
-  }, [])
-
   // 扫码界面
-  if (showScanner) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">扫描二维码加入房间</p>
-          <Button size="icon" variant="ghost" onClick={stopScanner}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        <div 
-          id="qr-reader" 
-          ref={scannerRef}
-          className="w-full aspect-square rounded-lg overflow-hidden bg-muted"
-        />
-        <p className="text-xs text-muted-foreground text-center">
-          将二维码对准框内即可自动识别
-        </p>
-      </div>
-    )
-  }
-
   if (callStatus === 'idle') {
     return (
       <>
@@ -153,14 +63,6 @@ export function RoomControls() {
               加入
             </Button>
           </div>
-          <Button 
-            variant="outline" 
-            className="w-full"
-            onClick={startScanner}
-          >
-            <Camera className="mr-2 h-4 w-4" />
-            扫码加入
-          </Button>
         </div>
       </>
     )
