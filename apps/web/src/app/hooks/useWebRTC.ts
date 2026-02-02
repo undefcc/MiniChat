@@ -1,5 +1,8 @@
 import { useState, useRef, useCallback } from 'react'
 import { MEDIA_CONSTRAINTS, RTC_CONFIGURATION } from '../config/webrtc.config'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('WebRTC')
 
 // ICE 服务器配置（从环境变量读取，Next.js 构建时内联）
 const getIceServers = () => {
@@ -13,13 +16,13 @@ const getIceServers = () => {
   const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME
   const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
 
-  console.log('🔍 [WebRTC] TURN credentials:', {
+  log.debug('🔍 TURN credentials:', {
     username: turnUsername ? `${turnUsername.substring(0, 8)}...` : 'MISSING',
     credential: turnCredential ? `${turnCredential.substring(0, 4)}...` : 'MISSING'
   })
 
   if (turnUsername && turnCredential) {
-    console.log('🔧 [WebRTC] TURN server configured:', 'global.relay.metered.ca')
+    log.info('🔧 TURN server configured:', 'global.relay.metered.ca')
     servers.push(
       { urls: "stun:stun.relay.metered.ca:80" },
       {
@@ -44,12 +47,12 @@ const getIceServers = () => {
       }
     )
   } else {
-    console.warn('⚠️ [WebRTC] TURN server credentials not configured.')
-    console.warn('⚠️ [WebRTC] Set NEXT_PUBLIC_TURN_USERNAME and NEXT_PUBLIC_TURN_CREDENTIAL')
+    log.warn('TURN server credentials not configured.')
+    log.warn('Set NEXT_PUBLIC_TURN_USERNAME and NEXT_PUBLIC_TURN_CREDENTIAL')
   }
 
-  console.log('🔧 [WebRTC] ICE servers configured:', servers.length, 'servers')
-  console.log('📋 [WebRTC] ICE servers:', servers.map(s => s.urls))
+  log.info('🔧 ICE servers configured:', servers.length, 'servers')
+  log.debug('📋 ICE servers:', servers.map(s => s.urls))
   return servers
 }
 
@@ -68,33 +71,33 @@ export function useWebRTC() {
   const startLocalStream = useCallback(async () => {
     try {
       // 先尝试获取视频和音频
-      console.log('📹 [WebRTC] Requesting video + audio...')
+      log.debug('📹 Requesting video + audio...')
       const stream = await navigator.mediaDevices.getUserMedia({
         video: MEDIA_CONSTRAINTS.video,
         audio: MEDIA_CONSTRAINTS.audio,
       })
-      console.log('✅ [WebRTC] Got video + audio')
+      log.info('✅ Got video + audio')
       setLocalStream(stream)
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
       }
       return stream
     } catch (error) {
-      console.error('❌ [WebRTC] Error accessing video/audio:', error)
+      log.error('Error accessing video/audio:', error)
       
       // 如果失败，尝试只获取音频
       try {
-        console.log('🎤 [WebRTC] Trying audio only...')
+        log.info('🎤 Trying audio only...')
         const audioStream = await navigator.mediaDevices.getUserMedia({
           audio: true
         })
-        console.log('✅ [WebRTC] Got audio only, no video')
+        log.info('✅ Got audio only, no video')
         setLocalStream(audioStream)
         return audioStream
       } catch (audioError) {
-        console.error('❌ [WebRTC] Error accessing audio:', audioError)
+        log.error('Error accessing audio:', audioError)
         // 即使没有媒体设备，也返回一个空流，允许纯数据通道连接
-        console.log('⚠️ [WebRTC] No media devices available, proceeding with receive-only mode')
+        log.warn('⚠️ No media devices available, proceeding with receive-only mode')
         const emptyStream = new MediaStream()
         setLocalStream(emptyStream)
         return emptyStream
@@ -107,14 +110,14 @@ export function useWebRTC() {
     onTrack: (event: RTCTrackEvent) => void,
     onIceCandidate: (candidate: RTCIceCandidate) => void
   ) => {
-    console.log('🔧 [WebRTC] Creating PeerConnection with', ICE_SERVERS.length, 'ICE servers')
+    log.debug('🔧 Creating PeerConnection with', ICE_SERVERS.length, 'ICE servers')
     const pc = new RTCPeerConnection({ 
       iceServers: ICE_SERVERS,
       ...RTC_CONFIGURATION,
     })
 
     pc.ontrack = (event) => {
-      console.log('📡 [WebRTC] ontrack event:', event.track.kind, event.streams)
+      log.debug('📡 ontrack event:', event.track.kind, event.streams)
       onTrack(event)
     }
     
@@ -127,26 +130,26 @@ export function useWebRTC() {
         
         // 详细日志，帮助诊断 TURN 是否工作
         if (type === 'relay') {
-          console.log(`🎯 [ICE] ✨ Generated RELAY candidate (${protocol}): TURN is working!`)
+          log.info(`🎯 ✨ Generated RELAY candidate (${protocol}): TURN is working!`)
         } else if (type === 'srflx') {
-          console.log(`🧊 [ICE] Generated SRFLX candidate (${protocol}): ${address}`)
+          log.debug(`🧊 Generated SRFLX candidate (${protocol}): ${address}`)
         } else {
-          console.log(`🧊 [ICE] Generated ${type} candidate (${protocol}): ${address || 'N/A'}`)
+          log.debug(`🧊 Generated ${type} candidate (${protocol}): ${address || 'N/A'}`)
         }
         
         onIceCandidate(event.candidate)
       } else {
-        console.log('✅ [ICE] Gathering complete')
+        log.debug('✅ Gathering complete')
       }
     }
     
     // ICE 收集状态变化
     pc.onicegatheringstatechange = () => {
-      console.log('🔄 [ICE] Gathering state:', pc.iceGatheringState)
+      log.debug('🔄 Gathering state:', pc.iceGatheringState)
     }
 
     pc.oniceconnectionstatechange = () => {
-      console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
+      log.debug('🔌 Connection state:', pc.iceConnectionState)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setIsConnected(true)
       }
@@ -156,7 +159,7 @@ export function useWebRTC() {
     }
 
     pc.onconnectionstatechange = () => {
-      console.log('🔗 [WebRTC] Connection state:', pc.connectionState)
+      log.debug('🔗 Connection state:', pc.connectionState)
     }
 
     // 不再预先添加 transceiver，改为在 addLocalStream 中统一处理
@@ -235,13 +238,13 @@ export function useWebRTC() {
 
   // 清理资源（内存优化版）
   const cleanup = useCallback(() => {
-    console.log('🧹 [WebRTC] Cleaning up resources...')
+    log.info('🧹 Cleaning up resources...')
     
     // 关闭 PeerConnection
     setPeerConnection(prev => {
       if (prev) {
         prev.close()
-        console.log('✅ [WebRTC] PeerConnection closed')
+        log.debug('✅ PeerConnection closed')
       }
       return null
     })
@@ -251,7 +254,7 @@ export function useWebRTC() {
       if (prev) {
         prev.getTracks().forEach(track => {
           track.stop()
-          console.log(`🛑 [WebRTC] Stopped local track: ${track.kind}`)
+          log.debug(`🛑 Stopped local track: ${track.kind}`)
         })
       }
       return null
@@ -262,7 +265,7 @@ export function useWebRTC() {
       if (prev) {
         prev.getTracks().forEach(track => {
           track.stop()
-          console.log(`🛑 [WebRTC] Stopped remote track: ${track.kind}`)
+          log.debug(`🛑 Stopped remote track: ${track.kind}`)
         })
       }
       return null
@@ -279,7 +282,7 @@ export function useWebRTC() {
     remoteStreamRef.current = null
     setIsConnected(false)
     
-    console.log('✅ [WebRTC] All resources cleaned up')
+    log.info('✅ All resources cleaned up')
   }, [])
 
   return {
