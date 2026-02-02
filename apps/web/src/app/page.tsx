@@ -1,102 +1,104 @@
 "use client"
 
-import React, { useEffect, useRef } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { VideoChatProvider, useVideoChatContext } from './context/VideoChatContext'
-import { ControlPanel } from './components/ControlPanel'
-import { MediaSection } from './components/MediaSection'
+import React, { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useSocketSignaling } from './hooks/useSocketSignaling'
 
-function VideoChatContent() {
-  const { callStatus, joinRoom } = useVideoChatContext()
-  const searchParams = useSearchParams()
+export default function HomePage() {
+  const [roomId, setRoomId] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
   const router = useRouter()
-  const isInCall = callStatus !== 'idle'
-  const hasAttemptedJoinRef = useRef(false) // 防止重复加入
-  const previousCallStatusRef = useRef<string>('idle') // 跟踪之前的通话状态
+  const signaling = useSocketSignaling()
 
-  // 检查 URL 参数，自动加入房间
-  useEffect(() => {
-    const roomParam = searchParams?.get('room')
-    if (roomParam && callStatus === 'idle' && !hasAttemptedJoinRef.current) {
-      // 标记已尝试加入，防止挂断后重复加入
-      hasAttemptedJoinRef.current = true
-      
-      // 延迟一点执行，确保组件完全初始化
-      const timer = setTimeout(() => {
-        // 自动加入时使用静默模式，避免挂断后重复提示
-        joinRoom(roomParam, { silent: true })
-      }, 500)
-      return () => clearTimeout(timer)
+  const handleCreateRoom = async () => {
+    try {
+      setIsCreating(true)
+      // 连接 Socket 并调用后端创建房间
+      await signaling.connect()
+      const newRoomId = await signaling.createRoom()
+      // 不要断开连接！房间页面会复用这个连接
+      // 跳转到房间页面
+      router.push(`/room/${newRoomId}`)
+    } catch (error) {
+      console.error('创建房间失败:', error)
+      alert('创建房间失败，请重试')
+      signaling.disconnect() // 只有出错时才断开
+    } finally {
+      setIsCreating(false)
     }
-  }, [searchParams, callStatus, joinRoom])
-  
-  // 挂断后清除 URL 参数（只在从通话状态变回 idle 时清除）
-  useEffect(() => {
-    const wasInCall = previousCallStatusRef.current !== 'idle'
-    const nowIdle = callStatus === 'idle'
-    
-    // 更新状态记录
-    previousCallStatusRef.current = callStatus
-    
-    // 只在"从通话中回到 idle"的场景下清除 URL
-    if (wasInCall && nowIdle && searchParams?.get('room')) {
-      // 清除 URL 中的 room 参数
-      router.replace('/', { scroll: false })
-      // 重置标记，允许下次手动加入
-      hasAttemptedJoinRef.current = false
+  }
+
+  const handleJoinRoom = () => {
+    if (!roomId.trim()) {
+      alert('请输入房间号')
+      return
     }
-  }, [callStatus, searchParams, router])
+    router.push(`/room/${roomId}`)
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto p-4 max-w-7xl">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="w-full max-w-md space-y-6">
         {/* 头部 */}
-        <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent mb-1">
-              MiniChat
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              🎥 WebRTC 点对点视频通话平台
-            </p>
-          </div>
-        </header>
+        <div className="text-center">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent mb-2">
+            MiniChat
+          </h1>
+          <p className="text-muted-foreground">
+            🎥 WebRTC 点对点视频通话平台
+          </p>
+        </div>
 
-        {/* 主体内容 */}
-        {isInCall ? (
-          /* 通话中：左侧控制面板 + 右侧视频聊天 */
-          <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4">
-            {/* 左侧控制面板 */}
-            <div className="animate-in slide-in-from-left duration-500">
-              <ControlPanel isInCall={isInCall} />
-            </div>
-            
-            {/* 右侧视频和聊天 */}
-            <div className="animate-in fade-in duration-500">
-              <MediaSection />
-            </div>
-          </div>
-        ) : (
-          /* 未创建房间：居中显示控制面板 */
-          <div className="max-w-md mx-auto space-y-6">
-            <div className="animate-in slide-in-from-bottom duration-500">
-              <ControlPanel isInCall={isInCall} />
-            </div>
-            
-            <footer className="text-center text-sm text-muted-foreground">
-              <p>基于 WebRTC + Socket.IO + NestJS 构建</p>
-            </footer>
-          </div>
-        )}
+        {/* 创建房间 */}
+        <Card className="animate-in fade-in duration-500">
+          <CardHeader>
+            <CardTitle>创建房间</CardTitle>
+            <CardDescription>创建一个新的视频聊天房间</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button 
+              onClick={handleCreateRoom}
+              className="w-full"
+              size="lg"
+              disabled={isCreating}
+            >
+              {isCreating ? '创建中...' : '创建新房间'}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* 加入房间 */}
+        <Card className="animate-in fade-in duration-500 delay-100">
+          <CardHeader>
+            <CardTitle>加入房间</CardTitle>
+            <CardDescription>输入房间号加入现有房间</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Input
+              placeholder="请输入房间号"
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleJoinRoom()}
+            />
+            <Button 
+              onClick={handleJoinRoom}
+              className="w-full"
+              variant="outline"
+              size="lg"
+            >
+              加入房间
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* 页脚 */}
+        <footer className="text-center text-sm text-muted-foreground animate-in fade-in duration-500 delay-200">
+          <p>基于 WebRTC + Socket.IO + NestJS 构建</p>
+        </footer>
       </div>
     </div>
-  )
-}
-
-export default function VideoChat() {
-  return (
-    <VideoChatProvider>
-      <VideoChatContent />
-    </VideoChatProvider>
   )
 }

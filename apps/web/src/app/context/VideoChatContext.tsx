@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode, useEffect } from 'react'
+import React, { createContext, useContext, ReactNode, useEffect, useRef } from 'react'
 import { useVideoChat } from '../hooks/useVideoChat'
 import { useMemoryMonitor } from '../hooks/useMemoryMonitor'
 import { MEMORY_LIMITS } from '../config/webrtc.config'
@@ -9,6 +9,12 @@ const VideoChatContext = createContext<VideoChatContextType | null>(null)
 
 export function VideoChatProvider({ children }: { children: ReactNode }) {
   const videoChat = useVideoChat()
+  const videoChatRef = useRef(videoChat)
+  
+  // 保持 ref 最新
+  useEffect(() => {
+    videoChatRef.current = videoChat
+  }, [videoChat])
   
   // 内存监控
   useMemoryMonitor({
@@ -27,9 +33,10 @@ export function VideoChatProvider({ children }: { children: ReactNode }) {
   // 页面卸载时自动清理连接
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (videoChat.callStatus !== 'idle') {
+      const currentVideoChat = videoChatRef.current
+      if (currentVideoChat.callStatus !== 'idle') {
         console.log('🚪 [App] Page unloading, cleaning up connections...')
-        videoChat.hangUp()
+        currentVideoChat.hangUp()
         // 可选：提示用户
         e.preventDefault()
         e.returnValue = ''
@@ -37,7 +44,8 @@ export function VideoChatProvider({ children }: { children: ReactNode }) {
     }
     
     const handleVisibilityChange = () => {
-      if (document.hidden && videoChat.callStatus !== 'idle') {
+      const currentVideoChat = videoChatRef.current
+      if (document.hidden && currentVideoChat.callStatus !== 'idle') {
         console.log('👁️ [App] Page hidden, connections will auto-cleanup on close')
       }
     }
@@ -49,11 +57,8 @@ export function VideoChatProvider({ children }: { children: ReactNode }) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      
-      // 注意：只在真正的组件卸载时清理，不是因为状态变化
-      // 所以这里不需要主动调用 hangUp，beforeunload 已经处理了
     }
-  }, [videoChat.callStatus, videoChat.hangUp]) // 只依赖必要的属性
+  }, []) // 空依赖，只注册一次，通过 ref 访问最新状态
   
   return (
     <VideoChatContext.Provider value={videoChat}>
