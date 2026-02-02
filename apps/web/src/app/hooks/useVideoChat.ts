@@ -138,7 +138,8 @@ export function useVideoChat() {
   }, [localStream, startLocalStream, createPeerConnection, handleRemoteTrack, addLocalStream, setupDataChannel, signaling])
 
   // 加入房间
-  const joinRoom = useCallback(async (id: string) => {
+  const joinRoom = useCallback(async (id: string, options?: { silent?: boolean }) => {
+    const { silent = false } = options || {}
     try {
       const stream = localStream || await startLocalStream()
       
@@ -248,7 +249,10 @@ export function useVideoChat() {
       setCallStatus('calling')
     } catch (error) {
       console.error('Error joining room:', error)
-      alert('加入房间失败，请检查房间ID是否正确')
+      // 如果不是静默模式，显示错误提示
+      if (!silent) {
+        alert('加入房间失败，请检查房间号是否正确')
+      }
       setCallStatus('idle')
     }
   }, [localStream, startLocalStream, signaling, createPeerConnection, handleRemoteTrack, setupDataChannel, addLocalStream])

@@ -1,7 +1,7 @@
 "use client"
 
-import React, { useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import React, { useEffect, useRef } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { VideoChatProvider, useVideoChatContext } from './context/VideoChatContext'
 import { ControlPanel } from './components/ControlPanel'
 import { MediaSection } from './components/MediaSection'
@@ -9,19 +9,35 @@ import { MediaSection } from './components/MediaSection'
 function VideoChatContent() {
   const { callStatus, joinRoom } = useVideoChatContext()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const isInCall = callStatus !== 'idle'
+  const hasAttemptedJoinRef = useRef(false) // 防止重复加入
 
   // 检查 URL 参数，自动加入房间
   useEffect(() => {
     const roomParam = searchParams?.get('room')
-    if (roomParam && callStatus === 'idle') {
+    if (roomParam && callStatus === 'idle' && !hasAttemptedJoinRef.current) {
+      // 标记已尝试加入，防止挂断后重复加入
+      hasAttemptedJoinRef.current = true
+      
       // 延迟一点执行，确保组件完全初始化
       const timer = setTimeout(() => {
-        joinRoom(roomParam)
+        // 自动加入时使用静默模式，避免挂断后重复提示
+        joinRoom(roomParam, { silent: true })
       }, 500)
       return () => clearTimeout(timer)
     }
   }, [searchParams, callStatus, joinRoom])
+  
+  // 挂断后清除 URL 参数
+  useEffect(() => {
+    if (callStatus === 'idle' && searchParams?.get('room') && hasAttemptedJoinRef.current) {
+      // 清除 URL 中的 room 参数
+      router.replace('/', { scroll: false })
+      // 重置标记，允许下次手动加入
+      hasAttemptedJoinRef.current = false
+    }
+  }, [callStatus, searchParams, router])
 
   return (
     <div className="min-h-screen bg-background">

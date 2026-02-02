@@ -50,12 +50,10 @@ export function VideoChatProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       
-      if (videoChat.callStatus !== 'idle') {
-        console.log('🧹 [App] Component unmounting, cleaning up...')
-        videoChat.hangUp()
-      }
+      // 注意：只在真正的组件卸载时清理，不是因为状态变化
+      // 所以这里不需要主动调用 hangUp，beforeunload 已经处理了
     }
-  }, [videoChat])
+  }, [videoChat.callStatus, videoChat.hangUp]) // 只依赖必要的属性
   
   return (
     <VideoChatContext.Provider value={videoChat}>
