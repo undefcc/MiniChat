@@ -12,6 +12,7 @@ function VideoChatContent() {
   const router = useRouter()
   const isInCall = callStatus !== 'idle'
   const hasAttemptedJoinRef = useRef(false) // 防止重复加入
+  const previousCallStatusRef = useRef<string>('idle') // 跟踪之前的通话状态
 
   // 检查 URL 参数，自动加入房间
   useEffect(() => {
@@ -29,9 +30,16 @@ function VideoChatContent() {
     }
   }, [searchParams, callStatus, joinRoom])
   
-  // 挂断后清除 URL 参数
+  // 挂断后清除 URL 参数（只在从通话状态变回 idle 时清除）
   useEffect(() => {
-    if (callStatus === 'idle' && searchParams?.get('room') && hasAttemptedJoinRef.current) {
+    const wasInCall = previousCallStatusRef.current !== 'idle'
+    const nowIdle = callStatus === 'idle'
+    
+    // 更新状态记录
+    previousCallStatusRef.current = callStatus
+    
+    // 只在"从通话中回到 idle"的场景下清除 URL
+    if (wasInCall && nowIdle && searchParams?.get('room')) {
       // 清除 URL 中的 room 参数
       router.replace('/', { scroll: false })
       // 重置标记，允许下次手动加入
