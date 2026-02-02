@@ -24,7 +24,7 @@ yarn-error.log*
 
 # local env files
 .env*.local
-.env.production
+# .env.production 由 GitHub Actions 生成，需要被包含在构建中
 
 # vercel
 .vercel

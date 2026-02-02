@@ -23,6 +23,7 @@ pipeline {
         stage('Deploy to ECS') {
             steps {
                 withCredentials([
+                    usernamePassword(credentialsId: 'aliyun-docker', usernameVariable: 'ALIYUN_DOCKER_USERNAME', passwordVariable: 'ALIYUN_DOCKER_PASSWORD'),
                     sshUserPrivateKey(credentialsId: 'ecs-server-key', keyFileVariable: 'SSH_KEY'),
                     string(credentialsId: 'minichat-cors-origin', variable: 'CORS_ORIGIN')
                 ]) {
@@ -32,6 +33,20 @@ pipeline {
                         # 设置环境变量
                         export REGISTRY="$REGISTRY"
                         export IMAGE_NAMESPACE="$IMAGE_NAMESPACE"
+                        
+                        # 登录到阿里云 Docker Registry
+                        echo "登录到 Docker Registry..."
+                        docker login --username=$ALIYUN_DOCKER_USERNAME --password=$ALIYUN_DOCKER_PASSWORD \$REGISTRY
+                        
+                        # 清理旧镜像缓存，强制拉取最新
+                        echo "清理旧镜像..."
+                        docker rmi \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest 2>/dev/null || true
+                        docker rmi \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest 2>/dev/null || true
+                        
+                        # 拉取最新镜像
+                        echo "拉取最新镜像..."
+                        docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest
+                        docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest
                         
                         # 创建网络（如果不存在）
                         echo "创建 Docker 网络..."
@@ -43,11 +58,6 @@ pipeline {
                         docker rm minichat-web 2>/dev/null || true
                         docker stop minichat-signaling 2>/dev/null || true
                         docker rm minichat-signaling 2>/dev/null || true
-                        
-                        # 拉取最新镜像（由 GitHub Actions 构建并推送）
-                        echo "拉取最新镜像..."
-                        docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest
-                        docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest
                         
                         # 验证镜像
                         echo "验证镜像..."
@@ -74,14 +84,15 @@ pipeline {
                           -e PORT=3100 \\
                           -e HOSTNAME=0.0.0.0 \\
                           -e NEXT_PUBLIC_SOCKET_URL=$SOCKET_URL \\
-                        # 启动 Web（环境变量已在构建时烘焙进镜像）
-                        echo "启动 Web..."
-                        docker run -d \\
-                          --name minichat-web \\
-                          --network minichat-network \\
-                          -e NODE_ENV=production \\
-                          -e PORT=3100 \\
-                          -e HOSTNAME=0.0.0.0 \\
+                          -p 3100:3100 \\
+                          --restart unless-stopped \\
+                          \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest
+                        
+                        # 检查服务状态
+                        echo "检查服务状态..."
+                        sleep 5
+                        docker ps --filter "name=minichat-"
+                        
                         echo "部署完成！"
 EOF
                     '''

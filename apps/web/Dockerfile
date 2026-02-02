@@ -19,7 +19,17 @@ COPY apps/web ./apps/web
 
 WORKDIR /app/apps/web
 
-# .env.production 由 GitHub Actions 生成，包含所有 NEXT_PUBLIC_* 变量
+# 接收构建参数并创建 .env.production
+ARG NEXT_PUBLIC_TURN_USERNAME
+ARG NEXT_PUBLIC_TURN_CREDENTIAL
+ARG NEXT_PUBLIC_SOCKET_URL
+
+# 直接在 Docker 中创建 .env.production 文件
+RUN echo "NEXT_PUBLIC_TURN_USERNAME=${NEXT_PUBLIC_TURN_USERNAME}" > .env.production && \
+    echo "NEXT_PUBLIC_TURN_CREDENTIAL=${NEXT_PUBLIC_TURN_CREDENTIAL}" >> .env.production && \
+    echo "NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}" >> .env.production && \
+    cat .env.production
+
 # Next.js 构建时会自动读取并内联到代码中
 RUN pnpm build
 

@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   signaling:
     image: minichat-signaling:test
@@ -8,7 +10,24 @@ services:
       - NODE_ENV=production
       - PORT=3101
       - CORS_ORIGIN=http://localhost:3100
+    mem_limit: 512m
+    mem_reservation: 256m
+    memswap_limit: 1g
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          node -e "require('net').connect(process.env.PORT || 3101,'localhost')
+          .on('error',()=>process.exit(1))
+          .on('connect',()=>process.exit(0))"
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
+    networks:
+      - minichat-network
 
   web:
     image: minichat-web:test
@@ -20,9 +39,25 @@ services:
       - NEXT_PUBLIC_SOCKET_URL=http://localhost:3101
       - NEXT_PUBLIC_TURN_USERNAME=${TURN_USERNAME:-9d27597c98c7229fc242d1f6}
       - NEXT_PUBLIC_TURN_CREDENTIAL=${TURN_CREDENTIAL:-fF6sGahr0DF+3BrN}
+    mem_limit: 1g
+    mem_reservation: 512m
+    memswap_limit: 2g
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          node -e "const http=require('http');const req=http.request('http://localhost:3100',res=>{process.exit(res.statusCode>=500?1:0)});req.on('error',()=>process.exit(1));req.end();"
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
-      - signaling
+      signaling:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - minichat-network
 
 networks:
   minichat-network:

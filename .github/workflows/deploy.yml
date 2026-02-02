@@ -147,20 +147,16 @@ jobs:
           
           echo "🔨 构建 ${{ matrix.service }} 服务镜像..."
           
-          # 为 web 服务生成 .env.production 文件（自动包含所有 NEXT_PUBLIC_ secrets）
+          # 为 web 服务传递环境变量构建参数
           if [ "${{ matrix.service }}" = "web" ]; then
-            echo "📝 生成环境变量文件..."
-            cat > apps/web/.env.production << EOF
-          NEXT_PUBLIC_TURN_USERNAME=${{ secrets.NEXT_PUBLIC_TURN_USERNAME }}
-          NEXT_PUBLIC_TURN_CREDENTIAL=${{ secrets.NEXT_PUBLIC_TURN_CREDENTIAL }}
-          NEXT_PUBLIC_SOCKET_URL=${{ secrets.NEXT_PUBLIC_SOCKET_URL }}
-          EOF
-            
             docker build \
               -t $IMAGE_TAG \
               -t $IMAGE_LATEST \
               -f apps/${{ matrix.service }}/Dockerfile \
               --build-arg SERVICE_NAME=${{ matrix.service }} \
+              --build-arg NEXT_PUBLIC_TURN_USERNAME=${{ secrets.NEXT_PUBLIC_TURN_USERNAME }} \
+              --build-arg NEXT_PUBLIC_TURN_CREDENTIAL=${{ secrets.NEXT_PUBLIC_TURN_CREDENTIAL }} \
+              --build-arg NEXT_PUBLIC_SOCKET_URL=${{ secrets.NEXT_PUBLIC_SOCKET_URL }} \
               .
           else
             docker build \
