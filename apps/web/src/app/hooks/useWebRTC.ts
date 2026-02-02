@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { MEDIA_CONSTRAINTS, RTC_CONFIGURATION } from '../config/webrtc.config'
 
 // ICE 服务器配置（从环境变量读取，Next.js 构建时内联）
 const getIceServers = () => {
@@ -11,6 +12,11 @@ const getIceServers = () => {
   // TURN 服务器配置（从环境变量读取）
   const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME
   const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
+
+  console.log('🔍 [WebRTC] TURN credentials:', {
+    username: turnUsername ? `${turnUsername.substring(0, 8)}...` : 'MISSING',
+    credential: turnCredential ? `${turnCredential.substring(0, 4)}...` : 'MISSING'
+  })
 
   if (turnUsername && turnCredential) {
     console.log('🔧 [WebRTC] TURN server configured:', 'global.relay.metered.ca')
@@ -43,6 +49,7 @@ const getIceServers = () => {
   }
 
   console.log('🔧 [WebRTC] ICE servers configured:', servers.length, 'servers')
+  console.log('📋 [WebRTC] ICE servers:', servers.map(s => s.urls))
   return servers
 }
 
@@ -57,14 +64,14 @@ export function useWebRTC() {
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
 
-  // 初始化本地媒体流
+  // 初始化本地媒体流（带内存优化配置）
   const startLocalStream = useCallback(async () => {
     try {
       // 先尝试获取视频和音频
       console.log('📹 [WebRTC] Requesting video + audio...')
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
+        video: MEDIA_CONSTRAINTS.video,
+        audio: MEDIA_CONSTRAINTS.audio,
       })
       console.log('✅ [WebRTC] Got video + audio')
       setLocalStream(stream)
@@ -103,7 +110,7 @@ export function useWebRTC() {
     console.log('🔧 [WebRTC] Creating PeerConnection with', ICE_SERVERS.length, 'ICE servers')
     const pc = new RTCPeerConnection({ 
       iceServers: ICE_SERVERS,
-      iceCandidatePoolSize: 10, // 预收集候选
+      ...RTC_CONFIGURATION,
     })
 
     pc.ontrack = (event) => {
@@ -116,7 +123,17 @@ export function useWebRTC() {
         const type = event.candidate.type
         const protocol = event.candidate.protocol
         const address = event.candidate.address
-        console.log(`🧊 [ICE] Generated ${type} candidate (${protocol}):`, address || 'relay')
+        const relatedAddress = event.candidate.relatedAddress
+        
+        // 详细日志，帮助诊断 TURN 是否工作
+        if (type === 'relay') {
+          console.log(`🎯 [ICE] ✨ Generated RELAY candidate (${protocol}): TURN is working!`)
+        } else if (type === 'srflx') {
+          console.log(`🧊 [ICE] Generated SRFLX candidate (${protocol}): ${address}`)
+        } else {
+          console.log(`🧊 [ICE] Generated ${type} candidate (${protocol}): ${address || 'N/A'}`)
+        }
+        
         onIceCandidate(event.candidate)
       } else {
         console.log('✅ [ICE] Gathering complete')
@@ -216,28 +233,53 @@ export function useWebRTC() {
     }
   }, [])
 
-  // 清理资源
+  // 清理资源（内存优化版）
   const cleanup = useCallback(() => {
+    console.log('🧹 [WebRTC] Cleaning up resources...')
+    
+    // 关闭 PeerConnection
     setPeerConnection(prev => {
       if (prev) {
         prev.close()
+        console.log('✅ [WebRTC] PeerConnection closed')
       }
       return null
     })
+    
+    // 停止并释放本地流
     setLocalStream(prev => {
       if (prev) {
-        prev.getTracks().forEach(track => track.stop())
+        prev.getTracks().forEach(track => {
+          track.stop()
+          console.log(`🛑 [WebRTC] Stopped local track: ${track.kind}`)
+        })
       }
       return null
     })
+    
+    // 停止并释放远程流
     setRemoteStream(prev => {
       if (prev) {
-        prev.getTracks().forEach(track => track.stop())
+        prev.getTracks().forEach(track => {
+          track.stop()
+          console.log(`🛑 [WebRTC] Stopped remote track: ${track.kind}`)
+        })
       }
       return null
     })
+    
+    // 清除 video 元素的 srcObject 以释放内存
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null
+    }
+    
     remoteStreamRef.current = null
     setIsConnected(false)
+    
+    console.log('✅ [WebRTC] All resources cleaned up')
   }, [])
 
   return {
