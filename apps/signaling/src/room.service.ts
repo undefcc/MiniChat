@@ -51,6 +51,14 @@ export class RoomService {
     })
   }
 
+  getAllRooms(): Record<string, string[]> {
+    const result: Record<string, string[]> = {}
+    this.rooms.forEach((room, roomId) => {
+      result[roomId] = Array.from(room.peers)
+    })
+    return result
+  }
+
   private generateRoomId(): string {
     return Math.random().toString(36).substring(2, 10)
   }
