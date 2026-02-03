@@ -1,62 +1,8 @@
 import { useState, useRef, useCallback } from 'react'
-import { MEDIA_CONSTRAINTS, RTC_CONFIGURATION } from '../config/webrtc.config'
+import { MEDIA_CONSTRAINTS, RTC_CONFIGURATION, getIceServers } from '../config/webrtc.config'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('WebRTC')
-
-// ICE 服务器配置（从环境变量读取，Next.js 构建时内联）
-const getIceServers = () => {
-  const servers: RTCIceServer[] = [
-    // STUN 服务器（免费公共服务）
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ]
-
-  // TURN 服务器配置（从环境变量读取）
-  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME
-  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
-
-  log.debug('🔍 TURN credentials:', {
-    username: turnUsername ? `${turnUsername.substring(0, 8)}...` : 'MISSING',
-    credential: turnCredential ? `${turnCredential.substring(0, 4)}...` : 'MISSING'
-  })
-
-  if (turnUsername && turnCredential) {
-    log.info('🔧 TURN server configured:', 'global.relay.metered.ca')
-    servers.push(
-      { urls: "stun:stun.relay.metered.ca:80" },
-      {
-        urls: "turn:global.relay.metered.ca:80",
-        username: turnUsername,
-        credential: turnCredential,
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80?transport=tcp",
-        username: turnUsername,
-        credential: turnCredential,
-      },
-      {
-        urls: "turn:global.relay.metered.ca:443",
-        username: turnUsername,
-        credential: turnCredential,
-      },
-      {
-        urls: "turns:global.relay.metered.ca:443?transport=tcp",
-        username: turnUsername,
-        credential: turnCredential,
-      }
-    )
-  } else {
-    log.warn('TURN server credentials not configured.')
-    log.warn('Set NEXT_PUBLIC_TURN_USERNAME and NEXT_PUBLIC_TURN_CREDENTIAL')
-  }
-
-  log.info('🔧 ICE servers configured:', servers.length, 'servers')
-  log.debug('📋 ICE servers:', servers.map(s => s.urls))
-  return servers
-}
-
-const ICE_SERVERS = getIceServers()
 
 export function useWebRTC() {
   const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null)
@@ -110,9 +56,19 @@ export function useWebRTC() {
     onTrack: (event: RTCTrackEvent) => void,
     onIceCandidate: (candidate: RTCIceCandidate) => void
   ) => {
-    log.debug('🔧 Creating PeerConnection with', ICE_SERVERS.length, 'ICE servers')
+    const iceServers = getIceServers()
+    
+    log.debug('🔍 TURN credentials:', {
+      username: process.env.NEXT_PUBLIC_TURN_USERNAME ? `${process.env.NEXT_PUBLIC_TURN_USERNAME.substring(0, 8)}...` : 'MISSING',
+      credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL ? `${process.env.NEXT_PUBLIC_TURN_CREDENTIAL.substring(0, 4)}...` : 'MISSING'
+    })
+    
+    log.info('🔧 ICE servers configured:', iceServers.length, 'servers')
+    log.debug('📋 ICE servers:', iceServers.map(s => typeof s.urls === 'string' ? s.urls : s.urls.join(', ')))
+    
+    log.debug('🔧 Creating PeerConnection with', iceServers.length, 'ICE servers')
     const pc = new RTCPeerConnection({ 
-      iceServers: ICE_SERVERS,
+      iceServers,
       ...RTC_CONFIGURATION,
     })
 

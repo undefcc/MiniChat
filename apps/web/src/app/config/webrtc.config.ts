@@ -1,7 +1,48 @@
 /**
  * WebRTC 和应用性能配置
- * 集中管理内存、带宽等限制
+ * 集中管理内存、带宽、ICE 服务器等设置
  */
+
+// ICE 服务器配置（从环境变量读取，Next.js 构建时内联）
+export const getIceServers = (): RTCIceServer[] => {
+  const servers: RTCIceServer[] = [
+    // STUN 服务器（免费公共服务，用于获取公网 IP）
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ]
+
+  // TURN 服务器配置（从环境变量读取，用于 NAT 穿透失败时的中继）
+  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME
+  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
+
+  if (turnUsername && turnCredential) {
+    servers.push(
+      { urls: "stun:stun.relay.metered.ca:80" },
+      {
+        urls: "turn:global.relay.metered.ca:80",
+        username: turnUsername,
+        credential: turnCredential,
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: turnUsername,
+        credential: turnCredential,
+      },
+      {
+        urls: "turn:global.relay.metered.ca:443",
+        username: turnUsername,
+        credential: turnCredential,
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: turnUsername,
+        credential: turnCredential,
+      }
+    )
+  }
+
+  return servers
+}
 
 export const MEDIA_CONSTRAINTS = {
   // 视频约束（内存优化）
