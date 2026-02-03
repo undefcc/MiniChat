@@ -88,7 +88,7 @@ export function useSocketSignaling(): SocketSignaling {
     
     return new Promise<void>((resolve, reject) => {
       // 连接到 Socket.IO 服务器
-      let socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL
+      let socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_SIGNALING_URL
       
       // 如果没有显式配置，自动构建 URL（支持 localhost 和 IP 访问）
       if (!socketUrl && typeof window !== 'undefined') {
@@ -100,9 +100,15 @@ export function useSocketSignaling(): SocketSignaling {
       
       console.log('[Socket] Connecting to:', socketUrl || 'same-origin')
       
+      // 判断是否使用安全连接
+      const isSecure = socketUrl ? socketUrl.startsWith('https://') : (typeof window !== 'undefined' && window.location.protocol === 'https:')
+      const isDev = process.env.NODE_ENV === 'development'
+      
       const socket = io(socketUrl || '', {
         path: '/socket.io/',
         transports: ['websocket', 'polling'],
+        secure: isSecure,
+        rejectUnauthorized: !isDev, // 生产环境严格验证证书，开发环境允许自签名
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,

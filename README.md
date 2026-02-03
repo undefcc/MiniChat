@@ -84,6 +84,77 @@ pnpm dev
 - Gateway API：http://localhost:4000
 - 信令服务：http://localhost:3101
 
+### 本地 HTTPS 配置（用于局域网访问）
+
+如需在局域网内通过 HTTPS 访问（如手机测试），需要配置本地 SSL 证书：
+
+#### 1. 安装 mkcert（首次配置）
+
+```bash
+# macOS
+brew install mkcert
+
+# Windows（使用 winget）
+winget install FiloSottile.mkcert
+
+# 或手动从 https://github.com/FiloSottile/mkcert/releases 下载
+```
+
+#### 2. 生成包含局域网 IP 的证书
+
+```bash
+cd apps/web
+mkcert -install                                    # 安装根 CA（自动生成 rootCA.pem）
+mkcert localhost 127.0.0.1 192.168.0.101 ::1     # 生成证书（替换 IP）
+```
+
+这会在当前目录生成两个文件：
+- `localhost+3.pem` - 证书
+- `localhost+3-key.pem` - 私钥
+
+> **注意**：`mkcert -install` 会自动在系统目录创建根 CA，包括 `rootCA.pem` 文件。
+
+#### 2b. 复制根证书到项目（供移动设备下载）
+
+```bash
+# 查找系统中 rootCA.pem 的位置
+mkcert -CAROOT
+
+# 复制根证书到项目（macOS/Linux）
+cp "$(mkcert -CAROOT)/rootCA.pem" public/rootCA.pem
+
+# 复制根证书到项目（Windows PowerShell）
+Copy-Item "$(mkcert -CAROOT)\rootCA.pem" public/rootCA.pem
+```
+
+这样移动设备可以通过页面直接下载 `public/rootCA.pem` 来安装证书。
+
+#### 3. 在移动设备上安装根证书
+
+**iOS/Safari：**
+1. 下载根证书：`public/rootCA.pem`（访问页面时可直接下载）
+2. 打开证书文件安装
+3. **关键步骤**：设置 → 通用 → 关于本机 → 证书信任设置 → 启用 mkcert 完全信任
+4. 重启浏览器/微信
+
+**Android：**
+1. 下载根证书：`public/rootCA.pem`
+2. 设置 → 安全 → 加密与凭据 → 从存储设备安装
+3. 为证书命名并确认安装
+
+#### 4. 启动服务
+
+```bash
+cd apps/web
+pnpm dev
+```
+
+然后在浏览器访问：`https://192.168.0.101:3100`（替换为你的局域网 IP）
+
+#### 5. 诊断连接
+
+如遇连接问题，访问诊断页面：`https://192.168.0.101:3100/check`
+
 ## 🔧 开发指南
 
 ### 项目结构
@@ -195,6 +266,20 @@ docker-compose up --build
 - `CORS_ORIGIN` - 允许的 CORS 来源
 - `NEXT_PUBLIC_API_URL` - 前端使用的 Gateway API 地址
 - `NEXT_PUBLIC_SIGNALING_URL` - 前端使用的信令服务地址
+
+### HTTPS 开发环境配置
+
+如配置了本地 HTTPS（见上文），需要更新环境变量：
+
+```env
+# 局域网 HTTPS 访问时的配置
+CORS_ORIGIN=https://localhost:3100,https://192.168.0.101:3100
+NEXT_PUBLIC_SIGNALING_URL=https://192.168.0.101:3101
+
+# 注意：
+# - 替换 192.168.0.101 为你的实际局域网 IP
+# - 信令服务自动检测证书并启用 HTTPS（无需额外配置）
+```
 
 ## 🤝 贡献
 

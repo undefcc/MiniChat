@@ -44,7 +44,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     // 连接到管理后台 WebSocket
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3101'
+    const socketUrl =
+      process.env.NEXT_PUBLIC_SOCKET_URL ||
+      process.env.NEXT_PUBLIC_SIGNALING_URL ||
+      'http://localhost:3101'
     const adminSocket = io(`${socketUrl}/admin`, {
       transports: ['websocket'],
     })
