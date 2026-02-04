@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { VideoChatProvider, useVideoChatContext } from '@/app/context/VideoChatContext'
 import { ControlPanel } from '@/app/components/ControlPanel'
 import { MediaSection } from '@/app/components/MediaSection'
+import { ConnectionStatusModal } from '@/app/components/ConnectionStatusModal'
 import { useSocketSignaling } from '@/app/hooks/useSocketSignaling'
 
 function RoomContent() {
@@ -150,6 +151,8 @@ function RoomContent() {
           </div>
         </div>
       </div>
+
+      <ConnectionStatusModal />
     </div>
   )
 }

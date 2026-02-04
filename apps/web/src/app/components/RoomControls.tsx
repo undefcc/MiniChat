@@ -15,7 +15,7 @@ export function RoomControls() {
   // 生成加入房间的 URL
   const getRoomUrl = () => {
     if (typeof window === 'undefined') return ''
-    return `${window.location.origin}/?room=${roomId}`
+    return `${window.location.origin}/room/${roomId}`
   }
 
   const copyRoomId = async () => {
