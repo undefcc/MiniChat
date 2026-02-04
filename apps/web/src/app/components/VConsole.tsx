@@ -26,6 +26,7 @@ export function VConsole() {
         vcBtn.style.userSelect = 'none'
         
         let isDragging = false
+        let hasMoved = false
         let startX = 0
         let startY = 0
         let initialLeft = 0
@@ -33,6 +34,7 @@ export function VConsole() {
         
         const onMouseDown = (e: MouseEvent) => {
           isDragging = true
+          hasMoved = false
           startX = e.clientX
           startY = e.clientY
           
@@ -49,6 +51,11 @@ export function VConsole() {
           
           const deltaX = e.clientX - startX
           const deltaY = e.clientY - startY
+          
+          // 如果移动超过 5px，标记为拖拽
+          if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+            hasMoved = true
+          }
           
           const newLeft = initialLeft + deltaX
           const newBottom = initialBottom - deltaY
@@ -69,13 +76,25 @@ export function VConsole() {
           }
         }
         
+        // 阻止拖拽后的点击事件
+        const onClick = (e: MouseEvent) => {
+          if (hasMoved) {
+            e.preventDefault()
+            e.stopPropagation()
+            e.stopImmediatePropagation()
+            hasMoved = false
+          }
+        }
+        
         vcBtn.addEventListener('mousedown', onMouseDown)
+        vcBtn.addEventListener('click', onClick, true)
         document.addEventListener('mousemove', onMouseMove)
         document.addEventListener('mouseup', onMouseUp)
         
         // 清理函数
         return () => {
           vcBtn.removeEventListener('mousedown', onMouseDown)
+          vcBtn.removeEventListener('click', onClick, true)
           document.removeEventListener('mousemove', onMouseMove)
           document.removeEventListener('mouseup', onMouseUp)
         }
