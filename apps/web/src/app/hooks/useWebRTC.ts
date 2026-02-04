@@ -58,13 +58,21 @@ export function useWebRTC() {
   ) => {
     const iceServers = getIceServers()
     
-    log.debug('🔍 TURN credentials:', {
-      username: process.env.NEXT_PUBLIC_TURN_USERNAME ? `${process.env.NEXT_PUBLIC_TURN_USERNAME.substring(0, 8)}...` : 'MISSING',
-      credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL ? `${process.env.NEXT_PUBLIC_TURN_CREDENTIAL.substring(0, 4)}...` : 'MISSING'
-    })
+    // 安全地显示 TURN 配置状态（不暴露完整密码）
+    const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME
+    const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
     
-    log.info('🔧 ICE servers configured:', iceServers.length, 'servers')
-    log.debug('📋 ICE servers:', iceServers.map(s => typeof s.urls === 'string' ? s.urls : s.urls.join(', ')))
+    // 使用 warn 级别确保生产环境可见（用于诊断 NAT 穿透问题）
+    log.warn('🔍 TURN Configuration Status:')
+    log.warn(`  Username: ${turnUsername ? `✅ ${turnUsername.substring(0, 8)}...` : '❌ MISSING'}`)
+    log.warn(`  Credential: ${turnCredential ? `✅ ${turnCredential.substring(0, 4)}****` : '❌ MISSING'}`)
+    log.warn(`  Total ICE Servers: ${iceServers.length}`)
+    
+    // 显示所有 ICE 服务器（隐藏凭据）
+    iceServers.forEach((server, idx) => {
+      const urls = typeof server.urls === 'string' ? [server.urls] : server.urls
+      log.warn(`  Server ${idx + 1}: ${urls.join(', ')}${server.username ? ' (with auth)' : ''}`)
+    })
     
     log.debug('🔧 Creating PeerConnection with', iceServers.length, 'ICE servers')
     const pc = new RTCPeerConnection({ 
@@ -86,7 +94,7 @@ export function useWebRTC() {
         
         // 详细日志，帮助诊断 TURN 是否工作
         if (type === 'relay') {
-          log.info(`🎯 ✨ Generated RELAY candidate (${protocol}): TURN is working!`)
+          log.warn(`🎯 ✨ Generated RELAY candidate (${protocol}): TURN is working!`)
         } else if (type === 'srflx') {
           log.debug(`🧊 Generated SRFLX candidate (${protocol}): ${address}`)
         } else {
@@ -105,7 +113,7 @@ export function useWebRTC() {
     }
 
     pc.oniceconnectionstatechange = () => {
-      log.debug('🔌 Connection state:', pc.iceConnectionState)
+      log.warn('🔌 ICE Connection state:', pc.iceConnectionState)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setIsConnected(true)
       }
