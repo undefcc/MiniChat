@@ -24,6 +24,7 @@ export type SocketSignaling = {
   createRoom: () => Promise<string>
   joinRoom: (roomId: string) => Promise<{ peers: string[] }>
   getOnlineStations: () => Promise<string[]>
+  inviteStation: (stationId: string, roomId: string) => Promise<void>
   onOffer: (handler: (from: string, offer: RTCSessionDescriptionInit) => void) => void
   onAnswer: (handler: (from: string, answer: RTCSessionDescriptionInit) => void) => void
   onIce: (handler: (from: string, candidate: RTCIceCandidateInit) => void) => void
@@ -326,6 +327,9 @@ export function useSocketSignaling(): SocketSignaling {
     onPeerDisconnected,
     onStationConnected,
     onStationDisconnected,
+    sendOffer,
+    sendAnswer,
+    sendIce,
     getSocket: () => globalSocket
   }
 }
