@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TURN 服务器测试</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { color: #22c55e; }
+        .error { color: #ef4444; }
+        .warning { color: #f59e0b; }
+    </style>
+</head>
+<body>
+    <h1>TURN 服务器连接测试</h1>
+    <button onclick="testTURN()">开始测试</button>
+    <div id="logs"></div>
+
+    <script>
+        // 替换为你的 TURN 凭证
+        const TURN_USERNAME = '9d27597c98c7229fc242d1f6';
+        const TURN_CREDENTIAL = 'fF6sGahr0DF+3BrN';
+        
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            document.getElementById('logs').appendChild(div);
+        }
+
+        async function testTURN() {
+            document.getElementById('logs').innerHTML = '';
+            log('开始测试 TURN 服务器...', 'info');
+            
+            const iceServers = [
+                { urls: 'stun:stun.l.google.com:19302' },
+                {
+                    urls: 'turn:global.relay.metered.ca:80',
+                    username: TURN_USERNAME,
+                    credential: TURN_CREDENTIAL,
+                },
+                {
+                    urls: 'turn:global.relay.metered.ca:443',
+                    username: TURN_USERNAME,
+                    credential: TURN_CREDENTIAL,
+                }
+            ];
+
+            log(`配置 ICE 服务器: ${iceServers.length} 个`, 'info');
+            
+            const pc = new RTCPeerConnection({ iceServers });
+
+            let relayFound = false;
+            let srflxFound = false;
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    const type = event.candidate.type;
+                    const candidate = event.candidate.candidate;
+                    
+                    if (type === 'relay') {
+                        relayFound = true;
+                        log(`✅ RELAY 候选生成成功！TURN 服务器可用`, 'success');
+                        log(`   候选: ${candidate}`, 'success');
+                    } else if (type === 'srflx') {
+                        srflxFound = true;
+                        log(`✓ SRFLX 候选生成（STUN）`, 'info');
+                    } else if (type === 'host') {
+                        log(`✓ HOST 候选生成（本地）`, 'info');
+                    }
+                } else {
+                    log('ICE 收集完成', 'info');
+                    
+                    if (!relayFound) {
+                        log('❌ 未生成 RELAY 候选！TURN 服务器可能有问题', 'error');
+                        log('可能原因:', 'error');
+                        log('  1. TURN 凭证错误或过期', 'error');
+                        log('  2. TURN 服务器不可达', 'error');
+                        log('  3. 网络防火墙阻止', 'error');
+                    }
+                }
+            };
+
+            pc.onicegatheringstatechange = () => {
+                log(`ICE 收集状态: ${pc.iceGatheringState}`, 'info');
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                log(`ICE 连接状态: ${pc.iceConnectionState}`, 
+                    pc.iceConnectionState === 'failed' ? 'error' : 'info');
+            };
+
+            // 创建一个数据通道触发 ICE 收集
+            pc.createDataChannel('test');
+            
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            
+            log('已创建 offer，开始收集 ICE 候选...', 'info');
+        }
+    </script>
+</body>
+</html>

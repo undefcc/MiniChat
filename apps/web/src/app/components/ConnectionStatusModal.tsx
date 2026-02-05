@@ -5,13 +5,13 @@ import { useVideoChatContext } from '@/app/context/VideoChatContext'
 
 type CandidateInfo = {
   id: string
-  type?: string
-  protocol?: string
-  address?: string
-  port?: number
-  foundation?: string
-  priority?: number
-  candidate?: string
+  type?: RTCIceCandidateType | null
+  protocol?: string | null
+  address?: string | null
+  port?: number | null
+  foundation?: string | null
+  priority?: number | null
+  candidate?: string | null
 }
 
 type SelectedPairInfo = {
