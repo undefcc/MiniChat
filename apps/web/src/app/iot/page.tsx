@@ -110,20 +110,20 @@ export default function IoTPage() {
         subLabel="Secure Channel Established"
       />
 
-      <div className="pt-24 max-w-[1600px] mx-auto grid grid-cols-12 gap-6 px-6 pb-6">
+      <div className="pt-24 max-w-[1600px] mx-auto h-[calc(100vh-1rem)] grid grid-cols-12 gap-6 px-6 pb-6">
         
         {/* 左侧控制栏 */}
-        <div className="col-span-12 lg:col-span-3 space-y-6">
+        <div className="col-span-12 lg:col-span-3 flex flex-col gap-6 h-full overflow-hidden">
           
           {/* 在线设备树 */}
-          <Card className="bg-white border-slate-200 shadow-sm ring-1 ring-slate-100">
-             <CardHeader className="pb-3 border-b border-slate-50">
+          <Card className="flex-1 overflow-hidden flex flex-col bg-white border-slate-200 shadow-sm ring-1 ring-slate-100">
+             <CardHeader className="flex-shrink-0 pb-3 border-b border-slate-50">
               <CardTitle className="text-sm font-semibold text-slate-800 uppercase tracking-wide flex items-center gap-2">
                 <Activity className="w-4 h-4 text-blue-500" />
                 Network Devices
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 pt-4">
+            <CardContent className="space-y-2 pt-4 flex-1 overflow-y-auto">
                {onlineStations.length === 0 ? (
                  <div className="text-slate-400 text-sm py-8 text-center bg-slate-50 rounded-lg border border-dashed border-slate-200">
                     No active devices found
@@ -212,8 +212,8 @@ export default function IoTPage() {
         </div>
 
         {/* 中间监控墙 */}
-        <div className="col-span-12 lg:col-span-6 h-[calc(100vh-140px)] flex flex-col">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full content-start">
+        <div className="col-span-12 lg:col-span-6 h-full flex flex-col overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full content-start overflow-y-auto pr-2">
             {Array.from(streams.values()).map(stream => (
               <MonitorPlayer 
                 key={`${stream.stationId}:${stream.cameraId}`} 
@@ -238,9 +238,9 @@ export default function IoTPage() {
         </div>
 
         {/* 右侧日志 */}
-        <div className="col-span-12 lg:col-span-3">
-          <Card className="h-[calc(100vh-140px)] bg-white border-slate-200 shadow-sm flex flex-col font-mono text-xs ring-1 ring-slate-100">
-            <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="col-span-12 lg:col-span-3 h-full overflow-hidden">
+          <Card className="h-full bg-white border-slate-200 shadow-sm flex flex-col font-mono text-xs ring-1 ring-slate-100">
+            <CardHeader className="flex-shrink-0 py-3 px-4 border-b border-slate-100 bg-slate-50/50">
               <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex justify-between items-center">
                 System Events
                 <span className="flex h-2 w-2">

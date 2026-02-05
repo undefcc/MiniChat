@@ -8,8 +8,8 @@ const config = {
   port: 3100,
   hostname: '0.0.0.0',
   https: {
-    key: './localhost+3-key.pem',
-    cert: './localhost+3.pem',
+    key: './localhost+6-key.pem',
+    cert: './localhost+6.pem',
   },
 }
 

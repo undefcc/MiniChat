@@ -9,8 +9,8 @@ const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100')
   .filter(Boolean)
 
 async function bootstrap() {
-  const defaultKeyPath = path.join(__dirname, '../../web/localhost+3-key.pem')
-  const defaultCertPath = path.join(__dirname, '../../web/localhost+3.pem')
+  const defaultKeyPath = path.join(__dirname, '../../web/localhost+6-key.pem')
+  const defaultCertPath = path.join(__dirname, '../../web/localhost+6.pem')
   const keyPath = process.env.SIGNALING_HTTPS_KEY_PATH || defaultKeyPath
   const certPath = process.env.SIGNALING_HTTPS_CERT_PATH || defaultCertPath
 

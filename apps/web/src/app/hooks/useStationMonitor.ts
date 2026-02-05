@@ -31,33 +31,49 @@ export function useStationMonitor() {
 
   // 初始化加载在线站点
   useEffect(() => {
+    let mounted = true
     const init = async () => {
       try {
         await signaling.connect()
-        const stations = await signaling.getOnlineStations()
-        setOnlineStations(stations)
-        addLog(`初始在线站点: ${stations.join(', ') || '无'}`)
+        // 只有当连接成功后获取列表
+        if (signaling.getSocket()?.connected) {
+          const stations = await signaling.getOnlineStations()
+          if (mounted) {
+            setOnlineStations(stations)
+            addLog(`初始在线站点: ${stations.join(', ') || '无'}`)
+          }
+        }
       } catch (e) {
         console.error('Failed to get online stations', e)
       }
     }
+    
+    // 如果已连接则直接调用，否则 connect 会触发
     init()
 
     // 监听上下线变化
-    signaling.onStationConnected((stationId) => {
+    const handleStationConnected = (stationId: string) => {
+      if (!mounted) return
       addLog(`站点上线: ${stationId}`)
       setOnlineStations(prev => {
         if (!prev.includes(stationId)) return [...prev, stationId]
         return prev
       })
-    })
+    }
 
-    signaling.onStationDisconnected((stationId) => {
+    const handleStationDisconnected = (stationId: string) => {
+        if (!mounted) return
       addLog(`站点下线: ${stationId}`)
       setOnlineStations(prev => prev.filter(id => id !== stationId))
-    })
+    }
 
-  }, [signaling])
+    signaling.onStationConnected(handleStationConnected)
+    signaling.onStationDisconnected(handleStationDisconnected)
+
+    return () => {
+      mounted = false
+    }
+  }, [signaling.getSocket()?.connected]) // 只在连接状态改变时触发
 
   // 1. 发起视频请求
   const requestStream = useCallback(async (stationId: string, cameraId: string) => {
