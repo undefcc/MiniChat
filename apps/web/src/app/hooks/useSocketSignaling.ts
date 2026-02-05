@@ -13,6 +13,8 @@ const handlers = {
   ice: null as ((from: string, candidate: RTCIceCandidateInit) => void) | null,
   peerJoined: null as ((peerId: string) => void) | null,
   peerDisconnected: null as ((peerId: string) => void) | null,
+  stationConnected: null as ((stationId: string) => void) | null,
+  stationDisconnected: null as ((stationId: string) => void) | null,
 }
 
 export type SocketSignaling = {
@@ -21,14 +23,19 @@ export type SocketSignaling = {
   checkRoom: (roomId: string) => Promise<boolean>
   createRoom: () => Promise<string>
   joinRoom: (roomId: string) => Promise<{ peers: string[] }>
+  getOnlineStations: () => Promise<string[]>
   onOffer: (handler: (from: string, offer: RTCSessionDescriptionInit) => void) => void
   onAnswer: (handler: (from: string, answer: RTCSessionDescriptionInit) => void) => void
   onIce: (handler: (from: string, candidate: RTCIceCandidateInit) => void) => void
   onPeerJoined: (handler: (peerId: string) => void) => void
   onPeerDisconnected: (handler: (peerId: string) => void) => void
+  onStationConnected: (handler: (stationId: string) => void) => void
+  onStationDisconnected: (handler: (stationId: string) => void) => void
   sendOffer: (to: string, offer: RTCSessionDescriptionInit) => void
+
   sendAnswer: (to: string, answer: RTCSessionDescriptionInit) => void
   sendIce: (to: string, candidate: RTCIceCandidateInit) => void
+  getSocket: () => Socket | null // 暴露 Socket 以便 IoT 模块使用
 }
 
 // 设置一次性的 socket 事件监听
@@ -38,6 +45,8 @@ function setupSocketListeners(socket: Socket) {
   socket.off('ice-candidate')
   socket.off('peer-joined')
   socket.off('peer-disconnected')
+  socket.off('station-connected')
+  socket.off('station-disconnected')
   
   socket.on('offer', (payload: { from: string; offer: RTCSessionDescriptionInit }) => {
     console.log('[Socket] Received offer from:', payload.from)
@@ -62,6 +71,16 @@ function setupSocketListeners(socket: Socket) {
   socket.on('peer-disconnected', (payload: { peerId: string }) => {
     console.log('[Socket] Peer disconnected:', payload.peerId)
     handlers.peerDisconnected?.(payload.peerId)
+  })
+
+  socket.on('station-connected', (payload: { stationId: string }) => {
+    console.log('[Socket] Station connected:', payload.stationId)
+    handlers.stationConnected?.(payload.stationId)
+  })
+
+  socket.on('station-disconnected', (payload: { stationId: string }) => {
+    console.log('[Socket] Station disconnected:', payload.stationId)
+    handlers.stationDisconnected?.(payload.stationId)
   })
 }
 
@@ -229,6 +248,24 @@ export function useSocketSignaling(): SocketSignaling {
     })
   }, [])
 
+  const getOnlineStations = useCallback(async (): Promise<string[]> => {
+    return new Promise((resolve, reject) => {
+      if (!globalSocket) {
+        reject(new Error('Socket not connected'))
+        return
+      }
+      globalSocket.emit('get-online-stations', {}, (response: { stations: string[] }) => {
+        resolve(response.stations || [])
+      })
+    })
+  }, [])
+
+  const inviteStation = useCallback(async (stationId: string, roomId: string) => {
+    if (!globalSocket) return
+    console.log('[Socket] Inviting station:', stationId, 'to room:', roomId)
+    globalSocket.emit('invite-station', { stationId, roomId })
+  }, [])
+
   // 注册处理器（替换旧的）
   const onOffer = useCallback((handler: (from: string, offer: RTCSessionDescriptionInit) => void) => {
     handlers.offer = handler
@@ -250,10 +287,19 @@ export function useSocketSignaling(): SocketSignaling {
     handlers.peerDisconnected = handler
   }, [])
 
+  const onStationConnected = useCallback((handler: (stationId: string) => void) => {
+    handlers.stationConnected = handler
+  }, [])
+
+  const onStationDisconnected = useCallback((handler: (stationId: string) => void) => {
+    handlers.stationDisconnected = handler
+  }, [])
+
   const sendOffer = useCallback((to: string, offer: RTCSessionDescriptionInit) => {
     console.log('[Socket] Sending offer to:', to)
     globalSocket?.emit('offer', { to, offer })
   }, [])
+
 
   const sendAnswer = useCallback((to: string, answer: RTCSessionDescriptionInit) => {
     console.log('[Socket] Sending answer to:', to)
@@ -269,15 +315,17 @@ export function useSocketSignaling(): SocketSignaling {
     connect, 
     disconnect, 
     checkRoom,
-    createRoom, 
-    joinRoom, 
-    onOffer, 
-    onAnswer, 
-    onIce, 
-    onPeerJoined, 
+    createRoom,
+    joinRoom,
+    getOnlineStations,
+    inviteStation,
+    onOffer,
+    onAnswer,
+    onIce,
+    onPeerJoined,
     onPeerDisconnected,
-    sendOffer, 
-    sendAnswer, 
-    sendIce 
+    onStationConnected,
+    onStationDisconnected,
+    getSocket: () => globalSocket
   }
 }
