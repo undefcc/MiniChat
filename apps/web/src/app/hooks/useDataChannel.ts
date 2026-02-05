@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { VideoQualityProfile } from '../config/webrtc.config'
 
 type Message = {
   text: string
@@ -6,11 +7,17 @@ type Message = {
   time: string
 }
 
-export function useDataChannel() {
+type DataChannelMessage = {
+  type: 'chat' | 'control'
+  payload: any
+}
+
+export function useDataChannel(props?: { onControlMessage?: (type: string, payload: any) => void }) {
   const [dataChannel, setDataChannel] = useState<RTCDataChannel | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const isSetupRef = useRef(false)
+  const onControlMessage = props?.onControlMessage
 
   // 添加消息
   const addMessage = useCallback((text: string, isSelf: boolean) => {
@@ -58,15 +65,30 @@ export function useDataChannel() {
 
     channel.onmessage = (event) => {
       console.log('[DataChannel] 收到消息:', event.data)
-      addMessage(event.data, false)
+      try {
+        const data = JSON.parse(event.data) as DataChannelMessage
+        if (data.type === 'control' && onControlMessage) {
+          onControlMessage('quality', data.payload)
+          return
+        }
+        if (data.type === 'chat') {
+          addMessage(data.payload, false)
+          return
+        }
+        // Fallback or unknown type
+        addMessage(String(event.data), false)
+      } catch (e) {
+        // Not JSON, treat as legacy chat message
+        addMessage(String(event.data), false)
+      }
     }
 
     if (isOpen) {
-      addSystemMessage('✓ 数据通道已连接')
+      addSystemMessage('✓ 数据通道已连接 (v2)')
     }
 
     setDataChannel(channel)
-  }, [addMessage, addSystemMessage])
+  }, [addMessage, addSystemMessage, onControlMessage])
 
   // 发送消息
   const sendMessage = useCallback((text: string) => {
@@ -80,11 +102,26 @@ export function useDataChannel() {
       return false
     }
 
-    currentChannel.send(text)
+    const message: DataChannelMessage = { type: 'chat', payload: text }
+    currentChannel.send(JSON.stringify(message))
     console.log('[DataChannel] 发送消息:', text)
     addMessage(text, true)
     return true
   }, [dataChannel, addMessage])
+
+  // 发送控制消息
+  const sendControlMessage = useCallback((type: string, payload: any) => {
+    const currentChannel = dataChannel
+    if (!currentChannel || currentChannel.readyState !== 'open') {
+      console.warn('⚠️ Cannot send control message: DataChannel not open')
+      return false
+    }
+
+    const message: DataChannelMessage = { type: 'control', payload }
+    currentChannel.send(JSON.stringify(message))
+    console.log('[DataChannel] 发送控制消息:', payload)
+    return true
+  }, [dataChannel])
 
   // 清理
   const cleanup = useCallback(() => {
@@ -117,6 +154,7 @@ export function useDataChannel() {
     messagesContainerRef,
     setupDataChannel,
     sendMessage,
+    sendControlMessage,
     addSystemMessage,
     cleanup
   }

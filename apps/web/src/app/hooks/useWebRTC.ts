@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { MEDIA_CONSTRAINTS, RTC_CONFIGURATION, getIceServers } from '../config/webrtc.config'
+import { MEDIA_CONSTRAINTS, RTC_CONFIGURATION, getIceServers, VIDEO_QUALITY_PROFILES, VideoQualityProfile } from '../config/webrtc.config'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('WebRTC')
@@ -200,6 +200,29 @@ export function useWebRTC() {
     }
   }, [])
 
+  // 设置本地视频质量
+  const setLocalVideoQuality = useCallback(async (quality: VideoQualityProfile) => {
+    if (!localStream) {
+      log.warn('⚠️ No local stream to set quality')
+      return
+    }
+
+    const videoTrack = localStream.getVideoTracks()[0]
+    if (!videoTrack) {
+      log.warn('⚠️ No video track to set quality')
+      return
+    }
+
+    try {
+      const constraints = VIDEO_QUALITY_PROFILES[quality]
+      log.info(`🎬 Applying video quality: ${quality}`, constraints)
+      await videoTrack.applyConstraints(constraints)
+      log.info('✅ Video quality updated')
+    } catch (error) {
+      log.error('❌ Failed to set video quality:', error)
+    }
+  }, [localStream])
+
   // 清理资源（内存优化版）
   const cleanup = useCallback(() => {
     log.info('🧹 Cleaning up resources...')
@@ -260,6 +283,7 @@ export function useWebRTC() {
     createPeerConnection,
     addLocalStream,
     handleRemoteTrack,
+    setLocalVideoQuality,
     cleanup
   }
 }

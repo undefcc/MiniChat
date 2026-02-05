@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useWebRTC } from './useWebRTC'
 import { useDataChannel } from './useDataChannel'
 import { useSocketSignaling } from './useSocketSignaling'
+import { VideoQualityProfile } from '../config/webrtc.config'
 
 export function useVideoChat() {
   const [roomId, setRoomId] = useState('')
@@ -9,18 +10,35 @@ export function useVideoChat() {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
   const [remotePeerId, setRemotePeerId] = useState<string | null>(null)
-
+  
   const {
     localStream,
     startLocalStream,
     createPeerConnection,
     addLocalStream,
     handleRemoteTrack,
+    setLocalVideoQuality,
     cleanup: webrtcCleanup,
     ...webrtcRest
   } = useWebRTC()
 
-  const { setupDataChannel, ...dataChannelRest } = useDataChannel()
+  // 处理控制消息
+  const handleControlMessage = useCallback((type: string, payload: any) => {
+    console.log('[VideoChat] Control message:', type, payload)
+    if (type === 'quality') {
+        const quality = payload as VideoQualityProfile
+        setLocalVideoQuality(quality)
+    }
+  }, [setLocalVideoQuality])
+
+  const { setupDataChannel, sendControlMessage, ...dataChannelRest } = useDataChannel({
+    onControlMessage: handleControlMessage
+  })
+
+  // 请求更改远程视频质量
+  const requestRemoteVideoQuality = useCallback((quality: VideoQualityProfile) => {
+    sendControlMessage('quality', quality)
+  }, [sendControlMessage])
   const signaling = useSocketSignaling()
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
   const iceCandidateBufferRef = useRef<{ from: string; candidate: RTCIceCandidateInit }[]>([])
@@ -390,6 +408,7 @@ export function useVideoChat() {
     toggleVideo,
     toggleAudio,
     hangUp,
+    requestRemoteVideoQuality,
     localStream,
     ...webrtcRest,
     ...dataChannelRest

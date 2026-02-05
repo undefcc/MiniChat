@@ -100,6 +100,26 @@ export const STREAM_LIMITS = {
   iceGatheringTimeout: 5000,
 } as const
 
+export const VIDEO_QUALITY_PROFILES = {
+  high: { 
+    width: { ideal: 1280, max: 1920 }, 
+    height: { ideal: 720, max: 1080 }, 
+    frameRate: { ideal: 30, max: 30 } 
+  },
+  standard: { 
+    width: { ideal: 640, max: 800 }, 
+    height: { ideal: 480, max: 600 }, 
+    frameRate: { ideal: 24, max: 30 } 
+  },
+  low: { 
+    width: { ideal: 320, max: 480 }, 
+    height: { ideal: 240, max: 360 }, 
+    frameRate: { ideal: 15, max: 15 } 
+  },
+} as const
+
+export type VideoQualityProfile = keyof typeof VIDEO_QUALITY_PROFILES
+
 export const CLEANUP_CONFIG = {
   // 自动清理延迟（毫秒）
   hangupDelay: 1000,
