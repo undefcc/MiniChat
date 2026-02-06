@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { RoomService } from './room.service';
+import { RoomService } from '../room/room.service';
 import * as os from 'os';
 import * as si from 'systeminformation';
 
@@ -39,8 +39,8 @@ export class MonitorService {
     const rooms = this.roomService.getAllRooms();
     return Object.entries(rooms).map(([roomId, users]) => ({
       roomId,
-      users,
-      userCount: users.length,
+      users: users as string[],
+      userCount: (users as string[]).length,
       createdAt: Date.now(), // 简化版：使用当前时间
     }));
   }

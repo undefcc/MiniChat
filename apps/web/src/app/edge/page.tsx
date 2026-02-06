@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useRef, useState } from 'react'
+import mqtt from 'mqtt'
 import { useSocketSignaling } from '../hooks/useSocketSignaling'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
@@ -162,26 +163,51 @@ export default function EdgePage() {
       setActiveRoomId(roomId)
   }
 
-  // 6. 周期性上报设备状态 + 响应拉取
+  // 6. 周期性上报设备状态 (MQTT)
   useEffect(() => {
     if (!isRegistered) return
-    const socket = signaling.getSocket()
-    if (!socket) return
 
-    const emitStatus = () => {
-      const payload = buildStatusPayload()
-      socket.emit('station-status-update', payload)
+    // MQTT Configuration
+    // Note: Browser requires MQTT over WebSockets. Ensure your broker supports it (e.g. port 8083).
+    const MQTT_BROKER_URL = 'ws://localhost:8083/mqtt'
+    
+    addLog(`System: Connecting to MQTT Broker at ${MQTT_BROKER_URL}...`)
+    
+    let client: mqtt.MqttClient | null = null;
+    
+    try {
+        client = mqtt.connect(MQTT_BROKER_URL)
+
+        client.on('connect', () => {
+             addLog('System: Connected to MQTT Broker')
+        })
+        
+        client.on('error', (err) => {
+             // addLog(`Error: MQTT error - ${err.message}`)
+             console.error('MQTT Error:', err)
+        })
+    } catch (err: any) {
+        addLog(`Error: MQTT Connection Failed - ${err.message}`)
     }
 
+    const emitStatus = () => {
+      if (client && client.connected) {
+          const payload = buildStatusPayload()
+          client.publish(`stations/${stationId}/status`, JSON.stringify(payload))
+      }
+    }
+
+    // Initial emit
     emitStatus()
     const interval = setInterval(emitStatus, 5000)
-    socket.on('cmd-station-status', emitStatus)
 
     return () => {
       clearInterval(interval)
-      socket.off('cmd-station-status', emitStatus)
+      if (client) {
+          client.end()
+      }
     }
-  }, [isRegistered, stationId, signaling])
+  }, [isRegistered, stationId])
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">

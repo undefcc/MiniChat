@@ -271,14 +271,32 @@ export function useStationMonitor() {
       updateStationStatus({ ...data, summary })
     }
 
+    const handleBatchStationStatusUpdate = (updates: StationStatusPayload[]) => {
+      // 1. 处理延迟统计 (如果有需要，这里目前简单跳过或取第一个)
+      // 2. 批量更新 Store
+      
+      // 预处理 summary
+      const processedUpdates = updates.map(data => ({
+         ...data,
+         summary: data.summary || computeSummary(data.devices || [])
+      }))
+      
+      // 调用 Store 的批量更新 Action
+      useStationStore.getState().batchUpdateStations(processedUpdates)
+    }
+
     socket.on('stream-ready', handleStreamReady)
     socket.on('incoming-call', handleIncomingCall)
+    // 兼容旧事件
     socket.on('station-status-update', handleStationStatusUpdate)
+    // 监听新的批量事件
+    socket.on('batch-station-status-update', handleBatchStationStatusUpdate)
 
     return () => {
       socket.off('stream-ready', handleStreamReady)
       socket.off('incoming-call', handleIncomingCall)
       socket.off('station-status-update', handleStationStatusUpdate)
+      socket.off('batch-station-status-update', handleBatchStationStatusUpdate)
     }
   }, [signaling, streams])
 

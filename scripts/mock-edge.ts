@@ -1,10 +1,15 @@
+import * as mqtt from 'mqtt'
 import { io } from 'socket.io-client'
+import { v4 as uuidv4 } from 'uuid'
 
-const SIGNALING_URL = 'http://localhost:3101'
+const MQTT_BROKER = 'mqtt://localhost:1883'
+const SIGNALING_SERVER = process.env.SIGNALING_SERVER || 'http://localhost:3101'
 const STATION_ID = process.argv[2] || 'bj_01'
+const SESSION_ID = uuidv4()
 
 console.log(`[Edge] Starting Mock Edge Agent for station: ${STATION_ID}`)
-console.log(`[Edge] Connecting to signaling server: ${SIGNALING_URL}`)
+console.log(`[Edge] Session ID: ${SESSION_ID}`)
+console.log(`[Edge] Connecting to MQTT broker: ${MQTT_BROKER}`)
 
 type DeviceStatus = 'online' | 'offline' | 'warning' | 'error'
 
@@ -82,15 +87,27 @@ const buildStatusPayload = (): StationStatusPayload => {
   }
 }
 
-const socket = io(SIGNALING_URL, {
-  transports: ['websocket'],
-  reconnection: true
+const client = mqtt.connect(MQTT_BROKER, {
+  will: {
+    topic: `stations/${STATION_ID}/offline`,
+    payload: JSON.stringify({ stationId: STATION_ID, sessionId: SESSION_ID }),
+    qos: 1,
+    retain: false
+  }
+})
+const socket = io(SIGNALING_SERVER, {
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
 })
 
 let statusInterval: NodeJS.Timeout | null = null
 
 const emitStatus = () => {
-  socket.emit('station-status-update', buildStatusPayload())
+  const topic = `stations/${STATION_ID}/status`
+  const payload = JSON.stringify(buildStatusPayload())
+  client.publish(topic, payload)
+  // console.log(`[Edge] Published status to ${topic}`)
 }
 
 const startStatusLoop = () => {
@@ -99,15 +116,24 @@ const startStatusLoop = () => {
   statusInterval = setInterval(emitStatus, 5000)
 }
 
+client.on('connect', () => {
+  console.log('[Edge] Connected to MQTT broker')
+  startStatusLoop()
+})
+
+client.on('error', (err) => {
+  console.error('[Edge] connection error:', err)
+})
+
 socket.on('connect', () => {
   console.log(`[Edge] Connected to cloud! Socket ID: ${socket.id}`)
   
   // Register station
-  socket.emit('register-station', { stationId: STATION_ID }, (res: any) => {
+  socket.emit('register-station', { stationId: STATION_ID, sessionId: SESSION_ID }, (res: any) => {
     console.log('[Edge] Registration response:', res)
   })
 
-  startStatusLoop()
+  // startStatusLoop() -> Moved to MQTT connect
 })
 
 socket.on('disconnect', () => {

@@ -1,16 +1,21 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
-import { SignalingGateway } from './signaling.gateway'
-import { RoomService } from './room.service'
-import { AdminGateway } from './admin.gateway'
-import { MonitorService } from './monitor.service'
+import { AdminGateway } from './admin/admin.gateway'
+import { MonitorService } from './admin/monitor.service'
+import { RoomModule } from './room/room.module'
+import { StationModule } from './station/station.module'
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    RoomModule,
+    StationModule,
   ],
-  providers: [SignalingGateway, RoomService, AdminGateway, MonitorService],
+  providers: [
+      AdminGateway, 
+      MonitorService
+  ],
 })
 export class AppModule {}
