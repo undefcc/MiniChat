@@ -337,6 +337,7 @@ export function useSocketSignaling(): SocketSignaling {
     joinRoom,
     getOnlineStations,
     inviteStation,
+    registerStation,
     onOffer,
     onAnswer,
     onIce,
