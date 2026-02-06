@@ -41,9 +41,9 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
     // console.log(`[StationGateway] Client connected: ${client.id}`)
   }
 
-  handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
     // 清理站点注册（如果是总控/TOC掉线）
-    const offlineStationId = this.stationService.removeStationBySocketId(client.id)
+    const offlineStationId = await this.stationService.removeStationBySocketId(client.id)
     if (offlineStationId) {
       this.server.emit('station-disconnected', { stationId: offlineStationId })
     }
@@ -53,12 +53,12 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   // 1. 站点上线注册 (Edge -> Cloud)
   @SubscribeMessage('register-station')
-  handleRegisterStation(
+  async handleRegisterStation(
     @MessageBody() data: { stationId: string; sessionId?: string },
     @ConnectedSocket() client: Socket,
   ) {
     console.log(`[StationGateway] Station Registered: ${data.stationId} (Socket: ${client.id})`)
-    this.stationService.registerStation(data.stationId, client.id, { sessionId: data.sessionId })
+    await this.stationService.registerStation(data.stationId, client.id, { sessionId: data.sessionId })
     // 广播给前端：站点上线
     this.server.emit('station-connected', { stationId: data.stationId })
     return { success: true }
@@ -66,18 +66,18 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   // 获取当前在线站点列表
   @SubscribeMessage('get-online-stations')
-  handleGetOnlineStations() {
-    const stations = this.stationService.getOnlineStations()
+  async handleGetOnlineStations() {
+    const stations = await this.stationService.getOnlineStations()
     return { stations }
   }
 
   // 邀请站点加入房间 (反向呼叫/对讲)
   @SubscribeMessage('invite-station')
-  handleInviteStation(
+  async handleInviteStation(
     @MessageBody() data: { stationId: string; roomId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    const stationSocketId = this.stationService.getStationSocketId(data.stationId)
+    const stationSocketId = await this.stationService.getStationSocketId(data.stationId)
     if (!stationSocketId) {
       return { error: 'Station offline' }
     }
@@ -109,11 +109,11 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   // 前端请求查看视频 (Cloud -> Edge)
   @SubscribeMessage('cmd-request-stream')
-  handleRequestStream(
+  async handleRequestStream(
     @MessageBody() data: { stationId: string; cameraId: string; offer?: RTCSessionDescriptionInit },
     @ConnectedSocket() client: Socket,
   ) {
-    const edgeSocketId = this.stationService.getStationSocketId(data.stationId)
+    const edgeSocketId = await this.stationService.getStationSocketId(data.stationId)
     if (!edgeSocketId) {
       return { error: 'Station offline or not found' }
     }
@@ -131,12 +131,12 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   // 总控回复流信息
   @SubscribeMessage('cmd-stream-response')
-  handleStreamResponse(
+  async handleStreamResponse(
     @MessageBody() data: { requesterId: string; status: string; url?: string; answer?: RTCSessionDescriptionInit; error?: string },
     @ConnectedSocket() client: Socket,
   ) {
     this.server.to(data.requesterId).emit('stream-ready', {
-      stationId: this.stationService.getStationId(client.id) || 'unknown',
+      stationId: await this.stationService.getStationId(client.id) || 'unknown',
       ...data
     })
   }

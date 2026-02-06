@@ -99,7 +99,7 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
   // 移除 MQTT 离线处理，完全由 ManagementGateway WebSocket 负责生命周期
   // private handleStationOffline(stationId: string, payload: any) { ... }
 
-  private processStatusUpdate(stationId: string, data: any) {
+  private async processStatusUpdate(stationId: string, data: any) {
     const updatedAt = data.updatedAt || Date.now();
     const now = Date.now();
 
@@ -111,7 +111,8 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
 
     // 关键变更：如果站点未在 RoomService 注册（即未连接 WebSocket），直接忽略 MQTT 数据
     // 这确保了 WS 断开后，后端不再处理该站点的任何 MQTT 消息
-    if (!this.stationService.getStationSocketId(stationId)) {
+    const socketId = await this.stationService.getStationSocketId(stationId)
+    if (!socketId) {
         // Option: console.debug(`[StatusGateway] Ignoring MQTT data for offline station: ${stationId}`)
         
         // 临时 Debug: 打印未能匹配的 stationId，帮助排查注册问题
@@ -150,11 +151,11 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
   // 前端请求站点设备状态 (Center -> Edge)
   // 如果是 MQTT 设备，我们需要通过 MQTT 下发指令
   @SubscribeMessage('request-station-status')
-  handleRequestStationStatus(
+  async handleRequestStationStatus(
     @MessageBody() data: { stationId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    const stationSocketId = this.stationService.getStationSocketId(data.stationId)
+    const stationSocketId = await this.stationService.getStationSocketId(data.stationId)
     
     // 如果是 MQTT 注册的虚拟 ID，或者找不到 Socket，尝试 MQTT 下发
     if (!stationSocketId || stationSocketId.startsWith('mqtt:')) {

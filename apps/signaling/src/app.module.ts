@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
-import { ConfigModule } from '@nestjs/config'
+import { ConfigModule, ConfigService } from '@nestjs/config'
+import { RedisModule } from '@nestjs-modules/ioredis'
 import { AdminGateway } from './admin/admin.gateway'
 import { MonitorService } from './admin/monitor.service'
 import { RoomModule } from './room/room.module'
@@ -9,6 +10,13 @@ import { StationModule } from './station/station.module'
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+    }),
+    RedisModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        type: 'single',
+        url: config.get<string>('REDIS_URL', 'redis://localhost:6379'),
+      }),
     }),
     RoomModule,
     StationModule,

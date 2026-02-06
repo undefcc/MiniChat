@@ -67,12 +67,14 @@ pipeline {
                         docker run -d \\
                           --name minichat-signaling \\
                           --network minichat-network \\
-                          --log-driver json-file \\
-                          --log-opt max-size=10m \\
-                          --log-opt max-file=3 \\
-                          --log-opt compress=true \\
-                          -e NODE_ENV=production \\
-                          -e PORT=3101 \\
+                          --add-host=host.docker.internal:host-gateway \
+                          --log-driver json-file \
+                          --log-opt max-size=10m \
+                          --log-opt max-file=3 \
+                          --log-opt compress=true \
+                          -e NODE_ENV=production \
+                          -e PORT=3101 \
+                          -e REDIS_URL="redis://host.docker.internal:6379" \
                           -e CORS_ORIGIN=$CORS_ORIGIN \\
                           -p 3101:3101 \\
                           --restart unless-stopped \\
