@@ -76,6 +76,45 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
     return { stations }
   }
 
+  // 站点设备状态上报 (Edge -> Center)
+  @SubscribeMessage('station-status-update')
+  handleStationStatusUpdate(
+    @MessageBody() data: { stationId?: string; updatedAt?: number; devices?: any[]; summary?: any },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const stationId = data.stationId || this.roomService.getStationId(client.id)
+    if (!stationId) {
+      return { error: 'Station not registered' }
+    }
+
+    this.server.emit('station-status-update', {
+      ...data,
+      stationId,
+      updatedAt: data.updatedAt || Date.now(),
+    })
+
+    return { success: true }
+  }
+
+  // 前端请求站点设备状态 (Center -> Edge)
+  @SubscribeMessage('request-station-status')
+  handleRequestStationStatus(
+    @MessageBody() data: { stationId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const stationSocketId = this.roomService.getStationSocketId(data.stationId)
+    if (!stationSocketId) {
+      return { error: 'Station offline or not found' }
+    }
+
+    this.server.to(stationSocketId).emit('cmd-station-status', {
+      requesterId: client.id,
+      stationId: data.stationId,
+    })
+
+    return { success: true }
+  }
+
   // 3. 邀请站点加入房间 (反向呼叫/对讲)
   @SubscribeMessage('invite-station')
   handleInviteStation(

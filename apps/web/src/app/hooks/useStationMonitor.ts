@@ -3,6 +3,37 @@ import { useSocketSignaling } from './useSocketSignaling'
 
 export type StreamStatus = 'idle' | 'requesting' | 'playing' | 'error'
 
+export type DeviceStatus = 'online' | 'offline' | 'warning' | 'error'
+
+export interface StationDeviceMetrics {
+  temp?: number
+  battery?: number
+  signal?: number
+  load?: number
+  memory?: number
+}
+
+export interface StationDeviceInfo {
+  deviceId: string
+  name: string
+  type: string
+  status: DeviceStatus
+  metrics?: StationDeviceMetrics
+  lastSeen?: number
+}
+
+export interface StationStatusPayload {
+  stationId: string
+  updatedAt: number
+  devices: StationDeviceInfo[]
+  summary?: {
+    online: number
+    offline: number
+    warning: number
+    error: number
+  }
+}
+
 export interface MonitorStream {
   stationId: string
   cameraId: string
@@ -23,10 +54,19 @@ export function useStationMonitor() {
   const [logs, setLogs] = useState<string[]>([])
   const [onlineStations, setOnlineStations] = useState<string[]>([])
   const [incomingCalls, setIncomingCalls] = useState<Set<string>>(new Set())
+  const [stationStatusMap, setStationStatusMap] = useState<Map<string, StationStatusPayload>>(new Map())
 
   const addLog = (msg: string) => {
     const time = new Date().toLocaleTimeString()
     setLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50))
+  }
+
+  const computeSummary = (devices: StationDeviceInfo[]) => {
+    const initial: Record<DeviceStatus, number> = { online: 0, offline: 0, warning: 0, error: 0 }
+    return devices.reduce<Record<DeviceStatus, number>>((acc, device) => {
+      acc[device.status] += 1
+      return acc
+    }, { ...initial })
   }
 
   // 初始化加载在线站点
@@ -65,6 +105,11 @@ export function useStationMonitor() {
         if (!mounted) return
       addLog(`站点下线: ${stationId}`)
       setOnlineStations(prev => prev.filter(id => id !== stationId))
+      setStationStatusMap(prev => {
+        const next = new Map(prev)
+        next.delete(stationId)
+        return next
+      })
     }
 
     signaling.onStationConnected(handleStationConnected)
@@ -187,6 +232,20 @@ export function useStationMonitor() {
     addLog(`关闭视频: ${stationId} - ${cameraId}`)
   }, [])
 
+  // 2.5 请求设备状态
+  const requestStationStatus = useCallback(async (stationId: string) => {
+    if (!stationId) return
+    try {
+      await signaling.connect()
+      const socket = (signaling as any).getSocket?.()
+      if (!socket) throw new Error('Socket not connected')
+      socket.emit('request-station-status', { stationId })
+      addLog(`请求设备状态: ${stationId}`)
+    } catch (err: any) {
+      addLog(`请求设备状态失败: ${err.message || 'unknown error'}`)
+    }
+  }, [signaling])
+
   // 3. 全局信令监听
   useEffect(() => {
     const socket = (signaling as any).getSocket?.()
@@ -227,12 +286,24 @@ export function useStationMonitor() {
       })
     }
 
+    const handleStationStatusUpdate = (data: StationStatusPayload) => {
+      if (!data?.stationId) return
+      setStationStatusMap(prev => {
+        const next = new Map(prev)
+        const summary = data.summary || computeSummary(data.devices || [])
+        next.set(data.stationId, { ...data, summary })
+        return next
+      })
+    }
+
     socket.on('stream-ready', handleStreamReady)
     socket.on('incoming-call', handleIncomingCall)
+    socket.on('station-status-update', handleStationStatusUpdate)
 
     return () => {
       socket.off('stream-ready', handleStreamReady)
       socket.off('incoming-call', handleIncomingCall)
+      socket.off('station-status-update', handleStationStatusUpdate)
     }
   }, [signaling, streams])
 
@@ -240,9 +311,11 @@ export function useStationMonitor() {
     streams,
     logs,
     onlineStations,
+    stationStatusMap,
     incomingCalls,
     requestStream,
     closeStream,
+    requestStationStatus,
     createRoom: signaling.createRoom,
     inviteStation: signaling.inviteStation,
     clearCall: (stationId: string) => {
