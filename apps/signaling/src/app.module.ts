@@ -13,10 +13,16 @@ import { StationModule } from './station/station.module'
     }),
     RedisModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'single',
-        url: config.get<string>('REDIS_URL', 'redis://localhost:6379'),
-      }),
+      useFactory: (config: ConfigService) => {
+        const url = config.get<string>('REDIS_URL', 'redis://localhost:6379')
+        const password = config.get<string>('REDIS_PASSWORD')
+        
+        return {
+          type: 'single',
+          url,
+          options: password ? { password } : undefined,
+        }
+      },
     }),
     RoomModule,
     StationModule,

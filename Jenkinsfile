@@ -24,7 +24,8 @@ pipeline {
                 withCredentials([
                     usernamePassword(credentialsId: 'aliyun-docker', usernameVariable: 'ALIYUN_DOCKER_USERNAME', passwordVariable: 'ALIYUN_DOCKER_PASSWORD'),
                     sshUserPrivateKey(credentialsId: 'ecs-server-key', keyFileVariable: 'SSH_KEY'),
-                    string(credentialsId: 'minichat-cors-origin', variable: 'CORS_ORIGIN')
+                    string(credentialsId: 'minichat-cors-origin', variable: 'CORS_ORIGIN'),
+                    string(credentialsId: 'redis-password', variable: 'REDIS_PASSWORD')
                 ]) {
                     sh '''
                     # 部署应用
@@ -75,6 +76,7 @@ pipeline {
                           -e NODE_ENV=production \
                           -e PORT=3101 \
                           -e REDIS_URL="redis://host.docker.internal:6379" \
+                          -e REDIS_PASSWORD=$REDIS_PASSWORD \
                           -e CORS_ORIGIN=$CORS_ORIGIN \\
                           -p 3101:3101 \\
                           --restart unless-stopped \\
