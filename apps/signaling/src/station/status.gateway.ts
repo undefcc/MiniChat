@@ -34,6 +34,7 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
 
   // MQTT Client
   private mqttClient: mqtt.MqttClient
+  private hasLoggedMqttError = false
 
   // 状态聚合缓冲区 { stationId: payload }
   private statusBuffer: Map<string, any> = new Map()
@@ -67,6 +68,7 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
     })
 
     this.mqttClient.on('connect', () => {
+      this.hasLoggedMqttError = false
       console.log('[MQTT] Connected to broker (StatusGateway)')
       // 订阅所有站点的状态上报 Topic
       this.mqttClient.subscribe('stations/+/status', (err) => {
@@ -77,7 +79,10 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
     })
 
     this.mqttClient.on('error', (err) => {
-      console.error('[MQTT] Client error:', err)
+      if (!this.hasLoggedMqttError) {
+        console.error('[MQTT] Client error:', err)
+        this.hasLoggedMqttError = true
+      }
     })
 
     this.mqttClient.on('message', (topic, message) => {

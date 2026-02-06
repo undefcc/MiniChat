@@ -3,13 +3,13 @@
 import React, { useEffect, useRef, useState } from 'react'
 import mqtt from 'mqtt'
 import { useSocketSignaling } from '../hooks/useSocketSignaling'
-import { Button } from '../../components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
-import { Input } from '../../components/ui/input'
-import { Label } from '../../components/ui/label'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Video, Globe, Activity, ShieldCheck, MonitorPlay, Phone, VideoOff } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
-import { HUDVideoModal } from '../../components/HUDVideoModal'
+import { HUDVideoModal } from '@/components/HUDVideoModal'
 
 type DeviceStatus = 'online' | 'offline' | 'warning' | 'error'
 
@@ -38,6 +38,10 @@ interface StationStatusPayload {
   }
 }
 
+import { SystemAlertBanner } from '@/components/SystemAlertBanner'
+import { GlobalStatusIndicator } from '@/components/GlobalStatusIndicator'
+import { useConnectionStore } from '@/app/store/connectionStore'
+
 export default function EdgePage() {
   const searchParams = useSearchParams()
   const initialStationId = searchParams.get('id') || `web_edge_${Math.floor(Math.random() * 1000)}`
@@ -45,11 +49,14 @@ export default function EdgePage() {
   const [stationId, setStationId] = useState(initialStationId)
   const [isRegistered, setIsRegistered] = useState(false)
   const [logs, setLogs] = useState<string[]>([])
+  const setMqttStatus = useConnectionStore(s => s.setMqttStatus)
+  const setSignalingStatus = useConnectionStore(s => s.setSignalingStatus)
   
   // Room State
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
   
   const videoRef = useRef<HTMLVideoElement>(null)
+  const mqttLoggedErrorRef = useRef(false)
   const signaling = useSocketSignaling()
   const baseDevicesRef = useRef<DeviceStatusPayload[]>([
     { deviceId: 'cam_1', name: 'Entrance Camera', type: 'camera', status: 'online', metrics: {} },
@@ -115,9 +122,9 @@ export default function EdgePage() {
         if (videoRef.current) {
           videoRef.current.srcObject = stream
         }
-        addLog('System: Camera initialized')
+        addLog('系统：摄像头初始化完成')
       } catch (e: any) {
-        addLog(`Error: Camera access denied - ${e.message}`)
+        addLog(`⚠警告：无法访问摄像头 - ${e.message}`)
       }
     }
     initCamera()
@@ -127,27 +134,35 @@ export default function EdgePage() {
   const handleRegister = async () => {
     if (!stationId) return
     try {
+      setSignalingStatus('connecting')
       await signaling.connect()
+      setSignalingStatus('connected')
+      
       // 等待注册确认
       await signaling.registerStation(stationId)
       
       setIsRegistered(true)
-      addLog(`System: Device registered as ${stationId}`)
+      addLog(`系统：设备注册成功 - ${stationId}`)
       
       const socket = signaling.getSocket()
       if (socket) {
         // 监听指令
         socket.on('cmd-station-join-room', handleInvite)
+        socket.on('disconnect', () => {
+            setSignalingStatus('disconnected')
+            addLog('警告：信令服务断开')
+        })
       }
     } catch (e: any) {
-      addLog(`Error: Registration failed - ${e.message}`)
+      setSignalingStatus('error', e.message)
+      addLog(`错误：注册失败 - ${e.message}`)
       console.error(e)
     }
   }
 
   // 3. 处理邀请
   const handleInvite = async (data: { roomId: string, inviterId: string }) => {
-      addLog(`Event: Incoming Call from ${data.inviterId}`)
+      addLog(`事件：收到呼叫 - ${data.inviterId}`)
       joinRoom(data.roomId)
   }
 
@@ -156,13 +171,13 @@ export default function EdgePage() {
       const socket = signaling.getSocket()
       if (socket) {
           socket.emit('station-call-center', { stationId })
-          addLog('Action: Calling Control Center...')
+          addLog('操作：正在呼叫总控中心...')
       }
   }
   
   // 4. 加入房间逻辑
   const joinRoom = (roomId: string) => {
-      addLog(`System: Joining secure channel ${roomId}...`)
+      addLog(`系统：正在加入加密通道 ${roomId}...`)
       setActiveRoomId(roomId)
   }
 
@@ -174,23 +189,38 @@ export default function EdgePage() {
     // Note: Browser requires MQTT over WebSockets. Ensure your broker supports it (e.g. port 8083).
     const MQTT_BROKER_URL = 'ws://localhost:8083/mqtt'
     
-    addLog(`System: Connecting to MQTT Broker at ${MQTT_BROKER_URL}...`)
+    addLog(`系统：正在连接 MQTT 服务 ${MQTT_BROKER_URL}...`)
     
     let client: mqtt.MqttClient | null = null;
     
     try {
+        setMqttStatus('connecting')
         client = mqtt.connect(MQTT_BROKER_URL)
 
         client.on('connect', () => {
-             addLog('System: Connected to MQTT Broker')
+             mqttLoggedErrorRef.current = false
+             addLog('系统：MQTT 服务已连接')
+             setMqttStatus('connected')
         })
         
         client.on('error', (err) => {
-             // addLog(`Error: MQTT error - ${err.message}`)
-             console.error('MQTT Error:', err)
+             if (!mqttLoggedErrorRef.current) {
+                 addLog(`错误：MQTT 异常 - ${err.message}`)
+                 console.error('MQTT Error:', err)
+                 setMqttStatus('error', err.message)
+                 mqttLoggedErrorRef.current = true
+             }
+        })
+
+        client.on('offline', () => {
+             if (!mqttLoggedErrorRef.current) {
+                 addLog(`警告：MQTT 服务断开`)
+                 setMqttStatus('disconnected')
+             }
         })
     } catch (err: any) {
-        addLog(`Error: MQTT Connection Failed - ${err.message}`)
+        addLog(`错误：MQTT 连接失败 - ${err.message}`)
+        setMqttStatus('error', err.message)
     }
 
     const emitStatus = () => {
@@ -214,6 +244,7 @@ export default function EdgePage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <SystemAlertBanner />
       <HUDVideoModal
          isOpen={!!activeRoomId}
          onClose={() => setActiveRoomId(null)}
@@ -230,16 +261,13 @@ export default function EdgePage() {
                 <MonitorPlay className="w-5 h-5 text-white" />
               </div>
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-700 to-teal-600">
-                Edge
+                边缘终端
               </span>
               <span className="text-xs align-top bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded ml-1 font-medium">DEVICE</span>
           </div>
           
-          <div className="ml-auto flex items-center gap-6 text-sm font-medium text-slate-500">
-             <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${isRegistered ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
-                <span className="text-slate-700">{isRegistered ? 'Online' : 'Offline'}</span>
-             </div>
+          <div className="ml-auto flex items-center space-x-6 text-sm font-medium text-slate-500">
+             <GlobalStatusIndicator />
              <div className="h-4 w-[1px] bg-slate-200"></div>
              <div>v1.0.2</div>
           </div>
@@ -253,14 +281,14 @@ export default function EdgePage() {
              <CardHeader className="pb-3 border-b border-slate-50">
               <CardTitle className="text-sm font-semibold text-slate-800 uppercase tracking-wide flex items-center gap-2">
                 <Activity className="w-4 h-4 text-emerald-500" />
-                Device Status
+                设备状态
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 pt-4">
                 {!isRegistered ? (
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label className="text-xs font-medium text-slate-500 uppercase">Station ID</Label>
+                            <Label className="text-xs font-medium text-slate-500 uppercase">站点编号</Label>
                             <Input 
                                 value={stationId} 
                                 onChange={e => setStationId(e.target.value)} 
@@ -272,14 +300,14 @@ export default function EdgePage() {
                             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-100"
                         >
                             <Globe className="w-4 h-4 mr-2" />
-                            Connect to Network
+                            连接网络
                         </Button>
                     </div>
                 ) : (
                     <div className="space-y-4">
                         <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-lg text-center space-y-1">
-                            <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Status</div>
-                            <div className="text-lg font-bold text-emerald-900">ONLINE & READY</div>
+                            <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">运行状态</div>
+                            <div className="text-lg font-bold text-emerald-900">在线就绪</div>
                             <div className="text-xs font-mono text-emerald-600/70">{stationId}</div>
                         </div>
                         <Button 
@@ -289,7 +317,7 @@ export default function EdgePage() {
                             onClick={handleCallCenter}
                         >
                             <Phone className="w-5 h-5 mr-3 animate-pulse" />
-                            Call Center
+                            呼叫总控中心
                         </Button>
                     </div>
                 )}
@@ -331,8 +359,8 @@ export default function EdgePage() {
             <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-xl text-blue-900/80 text-sm flex gap-3 items-start">
                 <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
                 <div>
-                    <h4 className="font-semibold text-blue-900">Edge Simulation Mode</h4>
-                    <p className="opacity-80 mt-1">This page simulates a physical device or kiosk. It streams the local camera and periodically reports device telemetry to the monitoring dashboard.</p>
+                    <h4 className="font-semibold text-blue-900">边缘终端模拟模式</h4>
+                    <p className="opacity-80 mt-1">此页面模拟物理设备或自助终端。它将流式传输本地摄像头画面，并定期向监控仪表板报告设备遥测数据。</p>
                 </div>
             </div>
         </div>
@@ -342,14 +370,14 @@ export default function EdgePage() {
           <Card className="h-[calc(100vh-140px)] bg-white border-slate-200 shadow-sm flex flex-col font-mono text-xs ring-1 ring-slate-100">
             <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50">
               <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex justify-between items-center">
-                Device Logs
+                运行日志
                 <Activity className="w-3.5 h-3.5 text-slate-400" />
               </CardTitle>
             </CardHeader>
             <CardContent className="flex-1 overflow-hidden p-0 relative bg-white">
               <div className="absolute inset-0 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
                 {logs.length === 0 && (
-                    <div className="text-slate-300 italic text-center py-10">System ready...</div>
+                    <div className="text-slate-300 italic text-center py-10">系统就绪...</div>
                 )}
                 {logs.map((log, i) => (
                   <div key={i} className="flex gap-3 text-[11px] leading-relaxed border-b border-slate-50 pb-2 last:border-0 hover:bg-slate-50 transition-colors rounded px-1 -mx-1">

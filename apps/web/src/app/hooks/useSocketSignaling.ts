@@ -256,8 +256,12 @@ export function useSocketSignaling(): SocketSignaling {
         reject(new Error('Socket not connected'))
         return
       }
-      globalSocket.emit('get-online-stations', {}, (response: { stations: string[] }) => {
-        resolve(response.stations || [])
+      globalSocket.emit('get-online-stations', {}, (response: any) => {
+        if (response?.error || response?.status === 'error') {
+          reject(new Error(response?.message || 'Failed to get stations'))
+        } else {
+          resolve(response.stations || [])
+        }
       })
     })
   }, [])

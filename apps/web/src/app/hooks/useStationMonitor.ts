@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useSocketSignaling } from './useSocketSignaling'
 import { useStationStore } from '../store/stationStore'
+import { useConnectionStore } from '../store/connectionStore'
 import { 
   MonitorStream, 
   StationStatusPayload, 
@@ -18,13 +19,16 @@ export function useStationMonitor() {
   const signaling = useSocketSignaling()
   const updateStationStatus = useStationStore(s => s.updateStationStatus)
   const removeStation = useStationStore(s => s.removeStation)
+  const setSignalingStatus = useConnectionStore(s => s.setSignalingStatus)
 
   const [streams, setStreams] = useState<Map<string, MonitorStream>>(new Map())
   const [logs, setLogs] = useState<string[]>([])
   const [onlineStations, setOnlineStations] = useState<string[]>([])
   const [incomingCalls, setIncomingCalls] = useState<Set<string>>(new Set())
+  
   // Removed internal stationStatusMap state in favor of global store
   const [stationLatencyMap, setStationLatencyMap] = useState<Map<string, number>>(new Map())
+
   const stationLatencyTimestampRef = useRef<Map<string, number>>(new Map())
 
   const addLog = (msg: string) => {
@@ -45,17 +49,23 @@ export function useStationMonitor() {
     let mounted = true
     const init = async () => {
       try {
+        setSignalingStatus('connecting')
         await signaling.connect()
         // 只有当连接成功后获取列表
         if (signaling.getSocket()?.connected) {
           const stations = await signaling.getOnlineStations()
           if (mounted) {
             setOnlineStations(stations)
+            setSignalingStatus('connected')
             addLog(`初始在线站点: ${stations.join(', ') || '无'}`)
           }
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error('Failed to get online stations', e)
+        if (mounted) {
+            setSignalingStatus('error', e.message || 'Connection failed')
+            addLog(`Error: ${e.message}`)
+        }
       }
     }
     

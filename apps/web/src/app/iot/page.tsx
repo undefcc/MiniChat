@@ -1,13 +1,17 @@
 "use client"
 import React, { useMemo, useState, useEffect, useCallback } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
-import { Button } from '../../components/ui/button'
-import { useStationMonitor, MonitorStream, StationDeviceInfo, StationStatusPayload } from '../hooks/useStationMonitor'
-import { useLatency } from '../hooks/useLatency'
-import { useSocketSignaling } from '../hooks/useSocketSignaling'
-import { useStationStore } from '../store/stationStore'
-import { VideoOff, Video, X, Phone, Activity, ShieldCheck, Cpu, Battery, Thermometer, Wifi, AlertTriangle, RefreshCw, Server } from 'lucide-react'
-import { HUDVideoModal } from '../../components/HUDVideoModal'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { useStationMonitor, MonitorStream, StationDeviceInfo } from '@/app/hooks/useStationMonitor'
+import { useLatency } from '@/app/hooks/useLatency'
+import { useSocketSignaling } from '@/app/hooks/useSocketSignaling'
+import { useStationStore } from '@/app/store/stationStore'
+import { useConnectionStore } from '@/app/store/connectionStore'
+
+import { Video, Phone, ShieldCheck, Activity, VideoOff, AlertTriangle, Server, RefreshCw, Thermometer, Battery, Wifi, Cpu, X } from 'lucide-react'
+import { HUDVideoModal } from '@/components/HUDVideoModal'
+import { SystemAlertBanner } from '@/components/SystemAlertBanner'
+import { GlobalStatusIndicator } from '@/components/GlobalStatusIndicator'
 
 const StationListItem = React.memo(({ station, isCalling, onSelect, onRequest, onCall }: {
   station: string
@@ -119,6 +123,7 @@ export default function IoTPage() {
   const { streams, logs, requestStream, closeStream, onlineStations, createRoom, inviteStation, incomingCalls, clearCall, requestStationStatus, stationLatencyMap } = useStationMonitor()
   const { latency, startMeasuring, cleanup } = useLatency()
   const signaling = useSocketSignaling()
+  const hasError = useConnectionStore((s: any) => s.signalingError || s.mqttError)
   const [stationId, setStationId] = useState('')
   const [cameraId, setCameraId] = useState('cam_1')
   const [activeCallRoom, setActiveCallRoom] = useState<string | null>(null)
@@ -188,8 +193,17 @@ export default function IoTPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <SystemAlertBanner />
+      <HUDVideoModal
+        isOpen={!!activeCallRoom}
+        onClose={() => setActiveCallRoom(null)}
+        roomId={activeCallRoom}
+        stationLabel="Live Intercom Session"
+        subLabel="Secure Channel Established"
+      />
+
        {/* 顶部导航栏 */}
-       <header className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center px-8 z-50 shadow-sm">
+       <header className={`fixed left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center px-8 z-50 shadow-sm transition-all duration-300 ${hasError ? 'top-10' : 'top-0'}`}>
           <div className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-800">
               <div className="bg-blue-600 rounded-lg p-1.5 shadow-lg shadow-blue-500/20">
                 <ShieldCheck className="w-5 h-5 text-white" />
@@ -201,10 +215,7 @@ export default function IoTPage() {
           </div>
           
           <div className="ml-auto flex items-center gap-6 text-sm font-medium text-slate-500">
-             <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="text-slate-700">系统在线</span>
-             </div>
+             <GlobalStatusIndicator />
              <div className="h-4 w-[1px] bg-slate-200"></div>
              <div className="flex items-center gap-4">
                 <div>系统: <span className={`font-mono ${latency > 100 ? 'text-amber-600' : latency > 50 ? 'text-slate-600' : 'text-emerald-600'}`}>{latency}ms</span></div>
@@ -214,14 +225,6 @@ export default function IoTPage() {
              </div>
           </div>
        </header>
-
-      <HUDVideoModal 
-        isOpen={!!activeCallRoom} 
-        onClose={() => setActiveCallRoom(null)}
-        roomId={activeCallRoom}
-        stationLabel="Live Intercom Session"
-        subLabel="Secure Channel Established"
-      />
 
       <div className="pt-24 max-w-[1600px] mx-auto h-[calc(100vh-1rem)] grid grid-cols-12 gap-6 px-6 pb-6">
         
