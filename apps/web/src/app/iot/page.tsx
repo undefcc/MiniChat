@@ -1,8 +1,10 @@
 "use client"
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { useStationMonitor, MonitorStream, StationDeviceInfo, StationStatusPayload } from '../hooks/useStationMonitor'
+import { useLatency } from '../hooks/useLatency'
+import { useSocketSignaling } from '../hooks/useSocketSignaling'
 import { VideoOff, Video, X, Phone, Activity, ShieldCheck, Cpu, Battery, Thermometer, Wifi, AlertTriangle, RefreshCw, Server } from 'lucide-react'
 import { HUDVideoModal } from '../../components/HUDVideoModal'
 
@@ -53,16 +55,32 @@ function MonitorPlayer({ stream }: { stream: MonitorStream }) {
 }
 
 export default function IoTPage() {
-  const { streams, logs, requestStream, closeStream, onlineStations, createRoom, inviteStation, incomingCalls, clearCall, stationStatusMap, requestStationStatus } = useStationMonitor()
+  const { streams, logs, requestStream, closeStream, onlineStations, createRoom, inviteStation, incomingCalls, clearCall, stationStatusMap, requestStationStatus, stationLatencyMap } = useStationMonitor()
+  const { latency, startMeasuring, cleanup } = useLatency()
+  const signaling = useSocketSignaling()
   const [stationId, setStationId] = useState('')
   const [cameraId, setCameraId] = useState('cam_1')
   const [activeCallRoom, setActiveCallRoom] = useState<string | null>(null)
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null)
 
+  // 仅在 IoT 页面 mount 时启动延迟测量
+  useEffect(() => {
+    const cleanup2 = startMeasuring(() => signaling.getSocket())
+    return () => {
+      cleanup2()
+      cleanup()
+    }
+  }, [])
+
   const selectedStationStatus: StationStatusPayload | undefined = useMemo(() => {
     if (!selectedStationId) return undefined
     return stationStatusMap.get(selectedStationId)
   }, [selectedStationId, stationStatusMap])
+
+  const selectedStationLatency = useMemo(() => {
+    if (!selectedStationId) return undefined
+    return stationLatencyMap.get(selectedStationId)
+  }, [selectedStationId, stationLatencyMap])
   
   const handleRequest = (sId: string = stationId) => {
     if (!sId || !cameraId) return
@@ -127,7 +145,12 @@ export default function IoTPage() {
                 <span className="text-slate-700">系统在线</span>
              </div>
              <div className="h-4 w-[1px] bg-slate-200"></div>
-             <div>延迟: <span className="text-emerald-600 font-mono">24ms</span></div>
+             <div className="flex items-center gap-4">
+                <div>系统: <span className={`font-mono ${latency > 100 ? 'text-amber-600' : latency > 50 ? 'text-slate-600' : 'text-emerald-600'}`}>{latency}ms</span></div>
+                {selectedStationLatency !== undefined && (
+                  <div>设备: <span className={`font-mono ${selectedStationLatency > 200 ? 'text-red-600' : selectedStationLatency > 50 ? 'text-amber-600' : 'text-emerald-600'}`}>{selectedStationLatency}ms</span></div>
+                )}
+             </div>
           </div>
        </header>
 

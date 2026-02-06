@@ -76,6 +76,12 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
     return { stations }
   }
 
+  // 客户端延迟测量 ping
+  @SubscribeMessage('ping')
+  handlePing() {
+    return { pong: true }
+  }
+
   // 站点设备状态上报 (Edge -> Center)
   @SubscribeMessage('station-status-update')
   handleStationStatusUpdate(

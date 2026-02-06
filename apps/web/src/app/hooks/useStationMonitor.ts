@@ -55,6 +55,8 @@ export function useStationMonitor() {
   const [onlineStations, setOnlineStations] = useState<string[]>([])
   const [incomingCalls, setIncomingCalls] = useState<Set<string>>(new Set())
   const [stationStatusMap, setStationStatusMap] = useState<Map<string, StationStatusPayload>>(new Map())
+  const [stationLatencyMap, setStationLatencyMap] = useState<Map<string, number>>(new Map())
+  const stationLatencyTimestampRef = useRef<Map<string, number>>(new Map())
 
   const addLog = (msg: string) => {
     const time = new Date().toLocaleTimeString()
@@ -236,6 +238,9 @@ export function useStationMonitor() {
   const requestStationStatus = useCallback(async (stationId: string) => {
     if (!stationId) return
     try {
+      // 记录请求时间
+      stationLatencyTimestampRef.current.set(stationId, Date.now())
+      
       await signaling.connect()
       const socket = (signaling as any).getSocket?.()
       if (!socket) throw new Error('Socket not connected')
@@ -288,6 +293,15 @@ export function useStationMonitor() {
 
     const handleStationStatusUpdate = (data: StationStatusPayload) => {
       if (!data?.stationId) return
+      
+      // 计算设备延迟（从请求发出到收到响应的时间）
+      const requestTime = stationLatencyTimestampRef.current.get(data.stationId)
+      if (requestTime) {
+        const deviceLatency = Date.now() - requestTime
+        setStationLatencyMap(prev => new Map(prev).set(data.stationId, deviceLatency))
+        stationLatencyTimestampRef.current.delete(data.stationId)
+      }
+      
       setStationStatusMap(prev => {
         const next = new Map(prev)
         const summary = data.summary || computeSummary(data.devices || [])
@@ -312,6 +326,7 @@ export function useStationMonitor() {
     logs,
     onlineStations,
     stationStatusMap,
+    stationLatencyMap,
     incomingCalls,
     requestStream,
     closeStream,
