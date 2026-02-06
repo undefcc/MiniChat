@@ -57,18 +57,29 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @MessageBody() data: { stationId: string; sessionId?: string },
     @ConnectedSocket() client: Socket,
   ) {
-    console.log(`[StationGateway] Station Registered: ${data.stationId} (Socket: ${client.id})`)
-    await this.stationService.registerStation(data.stationId, client.id, { sessionId: data.sessionId })
-    // 广播给前端：站点上线
-    this.server.emit('station-connected', { stationId: data.stationId })
-    return { success: true }
+    try {
+      console.log(`[StationGateway] Station Registered: ${data.stationId} (Socket: ${client.id})`)
+      await this.stationService.registerStation(data.stationId, client.id, { sessionId: data.sessionId })
+      // 广播给前端：站点上线
+      this.server.emit('station-connected', { stationId: data.stationId })
+      return { success: true }
+    } catch (error) {
+      console.error(`[StationGateway] Register failed for ${data.stationId}:`, error)
+      // 返回友好的错误信息而不是让 NestJS 抛出 Internal Error
+      return { status: 'error', message: error instanceof Error ? error.message : 'Register failed' }
+    }
   }
 
   // 获取当前在线站点列表
   @SubscribeMessage('get-online-stations')
   async handleGetOnlineStations() {
-    const stations = await this.stationService.getOnlineStations()
-    return { stations }
+    try {
+      const stations = await this.stationService.getOnlineStations()
+      return { stations }
+    } catch (error) {
+      console.error(`[StationGateway] Get online stations failed:`, error)
+      return { status: 'error', message: error instanceof Error ? error.message : 'Get stations failed', stations: [] }
+    }
   }
 
   // 邀请站点加入房间 (反向呼叫/对讲)
