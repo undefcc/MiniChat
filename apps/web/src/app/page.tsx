@@ -87,15 +87,16 @@ export default function HomePage() {
             { facingMode: 'environment' },
             {
               fps: 10,
-              qrbox: { width: 250, height: 250 },
+              qrbox: 250,
             },
             (decodedText) => {
               let extractedRoomId = decodedText
               try {
                 const url = new URL(decodedText)
-                const roomParam = url.searchParams.get('room')
-                if (roomParam) {
-                  extractedRoomId = roomParam
+                // 从路径中提取房间 ID，例如 /room/abc123 -> abc123
+                const pathMatch = url.pathname.match(/\/room\/([^\/]+)/)
+                if (pathMatch && pathMatch[1]) {
+                  extractedRoomId = pathMatch[1]
                 }
               } catch {
                 // 不是 URL，直接使用作为房间 ID

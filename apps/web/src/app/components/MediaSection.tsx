@@ -13,17 +13,17 @@ export function MediaSection() {
   } = useVideoChatContext()
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* 视频区域 - 并排显示 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 远程视频 */}
         <div className="relative">
           <VideoPlayer
             videoRef={remoteVideoRef}
             stream={remoteStream}
             title="远程视频"
+            isPrimary
           />
-          <QualityControls />
         </div>
 
         {/* 本地视频 */}

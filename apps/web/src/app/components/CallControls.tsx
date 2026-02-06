@@ -22,7 +22,7 @@ export function CallControls() {
       <Separator />
       
       <div className="space-y-2">
-        <p className="text-sm font-medium mb-3">通话控制</p>
+        {/* <p className="text-sm font-medium mb-3">通话控制</p> */}
         <div className="grid grid-cols-2 gap-2">
           <Button
             variant={isVideoEnabled ? "default" : "destructive"}
