@@ -1,12 +1,73 @@
 "use client"
-import React, { useMemo, useState, useEffect } from 'react'
+import React, { useMemo, useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { useStationMonitor, MonitorStream, StationDeviceInfo, StationStatusPayload } from '../hooks/useStationMonitor'
 import { useLatency } from '../hooks/useLatency'
 import { useSocketSignaling } from '../hooks/useSocketSignaling'
+import { useStationStore } from '../store/stationStore'
 import { VideoOff, Video, X, Phone, Activity, ShieldCheck, Cpu, Battery, Thermometer, Wifi, AlertTriangle, RefreshCw, Server } from 'lucide-react'
 import { HUDVideoModal } from '../../components/HUDVideoModal'
+
+const StationListItem = React.memo(({ station, isCalling, onSelect, onRequest, onCall }: {
+  station: string
+  isCalling: boolean
+  onSelect: (id: string) => void
+  onRequest: (id: string) => void
+  onCall: (id: string) => void
+}) => {
+  const status = useStationStore(s => s.stationStatusMap[station])
+  
+  return (
+    <div 
+        className={`group flex items-center justify-between p-3 rounded-lg border transition-all duration-200 cursor-pointer 
+        ${isCalling 
+            ? 'bg-rose-50 border-rose-200 shadow-sm' 
+            : 'bg-white hover:bg-slate-50 border-slate-100 hover:border-slate-200'}`}
+        onClick={() => onSelect(station)}
+    >
+      <div className="flex items-center gap-3">
+        <div className="relative">
+            <span className={`absolute -inset-1 rounded-full animate-ping ${isCalling ? 'bg-rose-400/50' : 'bg-emerald-400/30'}`}></span>
+            <span className={`relative w-2.5 h-2.5 rounded-full block shadow-sm border border-white ${isCalling ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+        </div>
+        <div className="flex flex-col">
+            <span className={`text-sm font-bold ${isCalling ? 'text-rose-700' : 'text-slate-700'}`}>
+                {station}
+                {isCalling && <span className="ml-2 text-[10px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full animate-pulse border border-rose-200 font-semibold">CALLING</span>}
+            </span>
+            <span className="text-[10px] text-slate-400 font-medium tracking-wide">
+              {status?.summary
+                ? `在线 ${status.summary.online || 0} · 预警 ${status.summary.warning || 0} · 异常 ${status.summary.error || 0}`
+                : 'IP: 192.168.1.X'}
+            </span>
+        </div>
+      </div>
+      <div className={`flex gap-1 transition-opacity ${isCalling ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+        <Button size="icon" variant="ghost" className="h-8 w-8 bg-white border border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 rounded-full shadow-sm" onClick={(e) => { e.stopPropagation(); onRequest(station) }} title="Monitor">
+            <Video className="h-4 w-4" />
+        </Button>
+        <Button 
+            size={isCalling ? "sm" : "icon"} 
+            className={`h-8 rounded-full shadow-none transition-all duration-300
+                ${isCalling 
+                    ? 'w-auto px-4 bg-rose-500 hover:bg-rose-600 text-white shadow-md shadow-rose-200 border-0' 
+                    : 'w-8 bg-transparent hover:bg-emerald-50 text-emerald-600 border border-transparent hover:border-emerald-100'
+                }`} 
+            onClick={(e) => { e.stopPropagation(); onCall(station) }} 
+            title="Call"
+        >
+            {isCalling ? (
+                <span className="flex items-center gap-1.5 font-bold text-xs"><Phone className="h-3.5 w-3.5 fill-current" /> Answer</span>
+            ) : (
+                <Phone className="h-4 w-4" />
+            )}
+        </Button>
+      </div>
+    </div>
+  )
+})
+StationListItem.displayName = 'StationListItem'
 
 // 简单的视频流播放组件
 function MonitorPlayer({ stream }: { stream: MonitorStream }) {
@@ -55,7 +116,7 @@ function MonitorPlayer({ stream }: { stream: MonitorStream }) {
 }
 
 export default function IoTPage() {
-  const { streams, logs, requestStream, closeStream, onlineStations, createRoom, inviteStation, incomingCalls, clearCall, stationStatusMap, requestStationStatus, stationLatencyMap } = useStationMonitor()
+  const { streams, logs, requestStream, closeStream, onlineStations, createRoom, inviteStation, incomingCalls, clearCall, requestStationStatus, stationLatencyMap } = useStationMonitor()
   const { latency, startMeasuring, cleanup } = useLatency()
   const signaling = useSocketSignaling()
   const [stationId, setStationId] = useState('')
@@ -72,10 +133,10 @@ export default function IoTPage() {
     }
   }, [])
 
-  const selectedStationStatus: StationStatusPayload | undefined = useMemo(() => {
-    if (!selectedStationId) return undefined
-    return stationStatusMap.get(selectedStationId)
-  }, [selectedStationId, stationStatusMap])
+  const selectedStationStatus = useStationStore(useCallback(
+    (state) => selectedStationId ? state.stationStatusMap[selectedStationId] : undefined,
+    [selectedStationId]
+  ))
 
   const selectedStationLatency = useMemo(() => {
     if (!selectedStationId) return undefined
@@ -184,53 +245,15 @@ export default function IoTPage() {
                  onlineStations.map(station => {
                    const isCalling = incomingCalls.has(station)
                    return (
-                   <div key={station} 
-                        className={`group flex items-center justify-between p-3 rounded-lg border transition-all duration-200 cursor-pointer 
-                        ${isCalling 
-                            ? 'bg-rose-50 border-rose-200 shadow-sm' 
-                            : 'bg-white hover:bg-slate-50 border-slate-100 hover:border-slate-200'}`}
-                        onClick={() => handleSelectStation(station)}
-                   >
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                            <span className={`absolute -inset-1 rounded-full animate-ping ${isCalling ? 'bg-rose-400/50' : 'bg-emerald-400/30'}`}></span>
-                            <span className={`relative w-2.5 h-2.5 rounded-full block shadow-sm border border-white ${isCalling ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
-                        </div>
-                        <div className="flex flex-col">
-                            <span className={`text-sm font-bold ${isCalling ? 'text-rose-700' : 'text-slate-700'}`}>
-                                {station}
-                                {isCalling && <span className="ml-2 text-[10px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full animate-pulse border border-rose-200 font-semibold">CALLING</span>}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-medium tracking-wide">
-                              {stationStatusMap.get(station)?.summary
-                                ? `在线 ${stationStatusMap.get(station)?.summary?.online || 0} · 预警 ${stationStatusMap.get(station)?.summary?.warning || 0} · 异常 ${stationStatusMap.get(station)?.summary?.error || 0}`
-                                : 'IP: 192.168.1.X'}
-                            </span>
-                        </div>
-                      </div>
-                      <div className={`flex gap-1 transition-opacity ${isCalling ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 bg-white border border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 rounded-full shadow-sm" onClick={(e) => { e.stopPropagation(); handleRequest(station) }} title="Monitor">
-                            <Video className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                            size={isCalling ? "sm" : "icon"} 
-                            className={`h-8 rounded-full shadow-none transition-all duration-300
-                                ${isCalling 
-                                    ? 'w-auto px-4 bg-rose-500 hover:bg-rose-600 text-white shadow-md shadow-rose-200 border-0' 
-                                    : 'w-8 bg-transparent hover:bg-emerald-50 text-emerald-600 border border-transparent hover:border-emerald-100'
-                                }`} 
-                            onClick={(e) => { e.stopPropagation(); handleCall(station) }} 
-                            title="Call"
-                        >
-                            {isCalling ? (
-                                <span className="flex items-center gap-1.5 font-bold text-xs"><Phone className="h-3.5 w-3.5 fill-current" /> Answer</span>
-                            ) : (
-                                <Phone className="h-4 w-4" />
-                            )}
-                        </Button>
-                      </div>
-                   </div>
-                 )
+                     <StationListItem
+                       key={station}
+                       station={station}
+                       isCalling={isCalling}
+                       onSelect={handleSelectStation}
+                       onRequest={handleRequest}
+                       onCall={handleCall}
+                     />
+                   )
                  })
                )}
             </CardContent>

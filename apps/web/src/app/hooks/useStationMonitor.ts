@@ -1,48 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useSocketSignaling } from './useSocketSignaling'
+import { useStationStore } from '../store/stationStore'
+import { 
+  MonitorStream, 
+  StationStatusPayload, 
+  DeviceStatus, 
+  StationDeviceInfo 
+} from '../types/station'
 
-export type StreamStatus = 'idle' | 'requesting' | 'playing' | 'error'
-
-export type DeviceStatus = 'online' | 'offline' | 'warning' | 'error'
-
-export interface StationDeviceMetrics {
-  temp?: number
-  battery?: number
-  signal?: number
-  load?: number
-  memory?: number
-}
-
-export interface StationDeviceInfo {
-  deviceId: string
-  name: string
-  type: string
-  status: DeviceStatus
-  metrics?: StationDeviceMetrics
-  lastSeen?: number
-}
-
-export interface StationStatusPayload {
-  stationId: string
-  updatedAt: number
-  devices: StationDeviceInfo[]
-  summary?: {
-    online: number
-    offline: number
-    warning: number
-    error: number
-  }
-}
-
-export interface MonitorStream {
-  stationId: string
-  cameraId: string
-  status: StreamStatus
-  stream?: MediaStream
-  url?: string
-  error?: string
-  pc?: RTCPeerConnection
-}
+export * from '../types/station'
 
 /**
  * 站点监控核心 Hook
@@ -50,11 +16,14 @@ export interface MonitorStream {
  */
 export function useStationMonitor() {
   const signaling = useSocketSignaling()
+  const updateStationStatus = useStationStore(s => s.updateStationStatus)
+  const removeStation = useStationStore(s => s.removeStation)
+
   const [streams, setStreams] = useState<Map<string, MonitorStream>>(new Map())
   const [logs, setLogs] = useState<string[]>([])
   const [onlineStations, setOnlineStations] = useState<string[]>([])
   const [incomingCalls, setIncomingCalls] = useState<Set<string>>(new Set())
-  const [stationStatusMap, setStationStatusMap] = useState<Map<string, StationStatusPayload>>(new Map())
+  // Removed internal stationStatusMap state in favor of global store
   const [stationLatencyMap, setStationLatencyMap] = useState<Map<string, number>>(new Map())
   const stationLatencyTimestampRef = useRef<Map<string, number>>(new Map())
 
@@ -107,11 +76,7 @@ export function useStationMonitor() {
         if (!mounted) return
       addLog(`站点下线: ${stationId}`)
       setOnlineStations(prev => prev.filter(id => id !== stationId))
-      setStationStatusMap(prev => {
-        const next = new Map(prev)
-        next.delete(stationId)
-        return next
-      })
+      removeStation(stationId)
     }
 
     signaling.onStationConnected(handleStationConnected)
@@ -302,12 +267,8 @@ export function useStationMonitor() {
         stationLatencyTimestampRef.current.delete(data.stationId)
       }
       
-      setStationStatusMap(prev => {
-        const next = new Map(prev)
-        const summary = data.summary || computeSummary(data.devices || [])
-        next.set(data.stationId, { ...data, summary })
-        return next
-      })
+      const summary = data.summary || computeSummary(data.devices || [])
+      updateStationStatus({ ...data, summary })
     }
 
     socket.on('stream-ready', handleStreamReady)
@@ -325,7 +286,6 @@ export function useStationMonitor() {
     streams,
     logs,
     onlineStations,
-    stationStatusMap,
     stationLatencyMap,
     incomingCalls,
     requestStream,
