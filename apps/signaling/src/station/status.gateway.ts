@@ -169,15 +169,14 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
         }
     }
     
-    // 如果有 Socket 连接 (ManagementGateway 会处理 Socket 路由吗？)
-    // 这里要注意：request-station-status 也是一种 Station Interaction。 
-    // 上面 ManagementGateway 也有这个吗？ 
-    // 之前 StationGateway 里有这个。
-    // 如果 Station 是纯 Socket 连的，ManagementGateway 处理。
-    // 如果 Station 是 MQTT 连的，StatusGateway 处理。
-    // 为了简单，可以让 StatusGateway 处理 MQTT，ManagementGateway 处理 Socket。
-    // 或者 StatusGateway 负责所有 Status 相关的 Command。
+    // 如果有 Socket 连接，通过 WebSocket 下发指令
+    if (stationSocketId && !stationSocketId.startsWith('mqtt:')) {
+        this.server.to(stationSocketId).emit('cmd-report-status', {
+            requesterId: client.id
+        })
+        return { success: true, via: 'websocket' }
+    }
     
-    return { error: 'Station unreachable or handled by ManagementGateway' }
+    return { error: 'Station unreachable' }
   }
 }
