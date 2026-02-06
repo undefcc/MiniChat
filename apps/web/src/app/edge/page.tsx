@@ -128,17 +128,20 @@ export default function EdgePage() {
     if (!stationId) return
     try {
       await signaling.connect()
+      // 等待注册确认
+      await signaling.registerStation(stationId)
+      
+      setIsRegistered(true)
+      addLog(`System: Device registered as ${stationId}`)
+      
       const socket = signaling.getSocket()
       if (socket) {
-        socket.emit('register-station', { stationId })
-        setIsRegistered(true)
-        addLog(`System: Device registered as ${stationId}`)
-        
         // 监听指令
         socket.on('cmd-station-join-room', handleInvite)
       }
     } catch (e: any) {
-      addLog(`Error: Connection failed - ${e.message}`)
+      addLog(`Error: Registration failed - ${e.message}`)
+      console.error(e)
     }
   }
 

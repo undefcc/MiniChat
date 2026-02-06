@@ -25,6 +25,7 @@ export type SocketSignaling = {
   joinRoom: (roomId: string) => Promise<{ peers: string[] }>
   getOnlineStations: () => Promise<string[]>
   inviteStation: (stationId: string, roomId: string) => Promise<void>
+  registerStation: (stationId: string) => Promise<void>
   onOffer: (handler: (from: string, offer: RTCSessionDescriptionInit) => void) => void
   onAnswer: (handler: (from: string, answer: RTCSessionDescriptionInit) => void) => void
   onIce: (handler: (from: string, candidate: RTCIceCandidateInit) => void) => void
@@ -265,6 +266,22 @@ export function useSocketSignaling(): SocketSignaling {
     if (!globalSocket) return
     console.log('[Socket] Inviting station:', stationId, 'to room:', roomId)
     globalSocket.emit('invite-station', { stationId, roomId })
+  }, [])
+
+  const registerStation = useCallback(async (stationId: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (!globalSocket) {
+        reject(new Error('Socket not connected'))
+        return
+      }
+      globalSocket.emit('register-station', { stationId }, (response: any) => {
+        if (response?.error || response?.status === 'error') {
+          reject(new Error(response?.message || 'Registration failed'))
+        } else {
+          resolve()
+        }
+      })
+    })
   }, [])
 
   // 注册处理器（替换旧的）
