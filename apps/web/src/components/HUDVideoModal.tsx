@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Dialog, DialogContent } from "./ui/dialog"
+import { Dialog, DialogContent } from "@/components/ui"
 import { EmbeddedVideoChat } from '@/app/components/EmbeddedVideoChat'
 
 function CallTimer() {
@@ -31,12 +31,8 @@ export function HUDVideoModal({
   onClose, 
   roomId, 
   stationLabel = "CAM-01 Current Session",
-  subLabel = "Live Connection",
-  iframeExtraParams = ""
+  subLabel = "Live Connection"
 }: HUDVideoModalProps) {
-  
-  // 确保iframe url 构造正确
-  const iframeSrc = roomId ? `/room/${roomId}${iframeExtraParams}` : undefined
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

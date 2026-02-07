@@ -6,7 +6,7 @@ import { VideoChatProvider, useVideoChatContext } from '@/app/context/VideoChatC
 import { ControlPanel } from '@/app/components/ControlPanel'
 import { MediaSection } from '@/app/components/MediaSection'
 import { ConnectionStatusModal } from '@/app/components/ConnectionStatusModal'
-import { useSocketSignaling } from '@/app/hooks/useSocketSignaling'
+import { request } from '@/app/utils/request'
 import { Video, ShieldCheck } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
 
@@ -14,7 +14,6 @@ function RoomContent() {
   const { callStatus, joinRoom, remoteStream } = useVideoChatContext()
   const params = useParams()
   const router = useRouter()
-  const signaling = useSocketSignaling()
   const roomId = params?.id as string
   const hasJoinedRef = useRef(false)
   const previousCallStatusRef = useRef<string>('idle')
@@ -31,10 +30,9 @@ function RoomContent() {
 
       attempts += 1
       try {
-        await signaling.connect()
-
         // 调用后端接口检查房间是否存在
-        const exists = await signaling.checkRoom(roomId)
+        const data = await request.get<{ exists: boolean }>( `/rooms/${roomId}/exists` )
+        const exists = Boolean(data.exists)
 
         if (cancelled) return
 
@@ -43,7 +41,6 @@ function RoomContent() {
           setCheckingRoom(false)
         } else {
           console.error('房间不存在')
-          signaling.disconnect()
           setRoomExists(false)
           setCheckingRoom(false)
           // 3 秒后重定向回首页
@@ -61,7 +58,6 @@ function RoomContent() {
         }
 
         console.error('检查房间时出错:', err)
-        signaling.disconnect()
         setRoomExists(false)
         setCheckingRoom(false)
         setTimeout(() => {
@@ -74,7 +70,7 @@ function RoomContent() {
     return () => {
       cancelled = true
     }
-  }, [roomId, router, signaling])
+  }, [roomId, router])
 
   // 页面加载时自动加入房间
   useEffect(() => {

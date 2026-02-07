@@ -3,6 +3,9 @@ import './globals.css'
 import { ThemeProvider } from '../components/theme-provider'
 import { VConsole } from './components/VConsole'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { AuthLoginLauncher } from '../components/AuthLoginLauncher'
+import { ToastHost } from '../components/ToastHost'
+import { WsErrorDialog } from '../components/WsErrorDialog'
 
 export const metadata: Metadata = {
   title: 'MiniChat - Video Chat Platform',
@@ -27,6 +30,9 @@ export default function RootLayout({
           <ErrorBoundary>
             {children}
           </ErrorBoundary>
+          <AuthLoginLauncher />
+          <ToastHost />
+          <WsErrorDialog />
         </ThemeProvider>
       </body>
     </html>

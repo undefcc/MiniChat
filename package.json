@@ -36,6 +36,8 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
     "mqtt": "^5.15.0",
     "socket.io-client": "^4.8.1",
     "ts-node": "^10.9.2",

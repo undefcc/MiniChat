@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { AlertTriangle, Wifi, RefreshCw } from 'lucide-react'
-import { Button } from './ui/button'
+import { Button } from '@/components/ui'
 import { useConnectionStore } from '../app/store/connectionStore'
 
 export function SystemAlertBanner() {

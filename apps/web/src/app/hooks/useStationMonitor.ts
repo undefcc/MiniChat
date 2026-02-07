@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { useSocketSignaling } from './useSocketSignaling'
+import { request } from '../utils/request'
+import * as wsBus from '../services/wsBus'
+import { WS_EVENTS } from '../services/wsConstants'
 import { useStationStore } from '../store/stationStore'
 import { useConnectionStore } from '../store/connectionStore'
 import { 
@@ -16,7 +18,6 @@ export * from '../types/station'
  * 负责管理多个并发的视频流连接
  */
 export function useStationMonitor() {
-  const signaling = useSocketSignaling()
   const updateStationStatus = useStationStore(s => s.updateStationStatus)
   const removeStation = useStationStore(s => s.removeStation)
   const setSignalingStatus = useConnectionStore(s => s.setSignalingStatus)
@@ -50,10 +51,11 @@ export function useStationMonitor() {
     const init = async () => {
       try {
         setSignalingStatus('connecting')
-        await signaling.connect()
+        await wsBus.connect()
         // 只有当连接成功后获取列表
-        if (signaling.getSocket()?.connected) {
-          const stations = await signaling.getOnlineStations()
+        if (wsBus.getSocket()?.connected) {
+          const data = await request.get<{ stations: string[] }>('/stations/online')
+          const stations = data.stations || []
           if (mounted) {
             setOnlineStations(stations)
             setSignalingStatus('connected')
@@ -89,13 +91,18 @@ export function useStationMonitor() {
       removeStation(stationId)
     }
 
-    signaling.onStationConnected(handleStationConnected)
-    signaling.onStationDisconnected(handleStationDisconnected)
+    const handleConnectedEvent = (payload: { stationId: string }) => handleStationConnected(payload.stationId)
+    const handleDisconnectedEvent = (payload: { stationId: string }) => handleStationDisconnected(payload.stationId)
+
+    wsBus.on(WS_EVENTS.STATION.CONNECTED, handleConnectedEvent)
+    wsBus.on(WS_EVENTS.STATION.DISCONNECTED, handleDisconnectedEvent)
 
     return () => {
       mounted = false
+      wsBus.off(WS_EVENTS.STATION.CONNECTED, handleConnectedEvent)
+      wsBus.off(WS_EVENTS.STATION.DISCONNECTED, handleDisconnectedEvent)
     }
-  }, [signaling.getSocket()?.connected]) // 只在连接状态改变时触发
+  }, [wsBus.getSocket()?.connected]) // 只在连接状态改变时触发
 
   // 1. 发起视频请求
   const requestStream = useCallback(async (stationId: string, cameraId: string) => {
@@ -112,7 +119,7 @@ export function useStationMonitor() {
 
     // 尝试建立连接 (Socket)
     try {
-      await signaling.connect()
+      await wsBus.connect()
       
       // 创建 Offer (WebRTC P2P 模式)
       // 注意：这里我们创建一个只接收的 PC，不需要麦克风/摄像头权限
@@ -146,18 +153,11 @@ export function useStationMonitor() {
       const completeOffer = pc.localDescription
 
       // 发送指令
-      // 注意：这里我们绕过了 try/catch，假设 signaling 已经被修改为支持 emit 'cmd-request-stream'
-      // 由于 useSocketSignaling 类型定义可能还没更新，这里用 any 或扩展
-      const socket = (signaling as any).getSocket?.() 
-      if (socket) {
-        socket.emit('cmd-request-stream', {
-          stationId,
-          cameraId,
-          offer: completeOffer // 携带完整的 Offer (包含 ICE Candidates)
-        })
-      } else {
-         throw new Error('Socket not connected')
-      }
+      wsBus.emit(WS_EVENTS.STATION.CMD_REQUEST_STREAM, {
+        stationId,
+        cameraId,
+        offer: completeOffer, // 携带完整的 Offer (包含 ICE Candidates)
+      })
 
       // 保存 PC 实例以便后续处理 Answer 和 ICE
       setStreams(prev => {
@@ -192,7 +192,7 @@ export function useStationMonitor() {
         return next
       })
     }
-  }, [signaling])
+  }, [])
 
   // 2. 停止视频
   const closeStream = useCallback((stationId: string, cameraId: string) => {
@@ -216,21 +216,16 @@ export function useStationMonitor() {
       // 记录请求时间
       stationLatencyTimestampRef.current.set(stationId, Date.now())
       
-      await signaling.connect()
-      const socket = (signaling as any).getSocket?.()
-      if (!socket) throw new Error('Socket not connected')
-      socket.emit('request-station-status', { stationId })
+      await wsBus.connect()
+      wsBus.emit(WS_EVENTS.STATION.REQUEST_STATUS, { stationId })
       addLog(`请求设备状态: ${stationId}`)
     } catch (err: any) {
       addLog(`请求设备状态失败: ${err.message || 'unknown error'}`)
     }
-  }, [signaling])
+  }, [])
 
   // 3. 全局信令监听
   useEffect(() => {
-    const socket = (signaling as any).getSocket?.()
-    if (!socket) return
-
     // 监听总控回复: stream-ready
     const handleStreamReady = async (data: any) => {
       // data: { stationId, requesterId, status, answer, url }
@@ -295,20 +290,20 @@ export function useStationMonitor() {
       useStationStore.getState().batchUpdateStations(processedUpdates)
     }
 
-    socket.on('stream-ready', handleStreamReady)
-    socket.on('incoming-call', handleIncomingCall)
+    wsBus.on(WS_EVENTS.STATION.STREAM_READY, handleStreamReady)
+    wsBus.on(WS_EVENTS.STATION.INCOMING_CALL, handleIncomingCall)
     // 兼容旧事件
-    socket.on('station-status-update', handleStationStatusUpdate)
+    wsBus.on(WS_EVENTS.STATION.STATUS_UPDATE, handleStationStatusUpdate)
     // 监听新的批量事件
-    socket.on('batch-station-status-update', handleBatchStationStatusUpdate)
+    wsBus.on(WS_EVENTS.STATION.BATCH_STATUS_UPDATE, handleBatchStationStatusUpdate)
 
     return () => {
-      socket.off('stream-ready', handleStreamReady)
-      socket.off('incoming-call', handleIncomingCall)
-      socket.off('station-status-update', handleStationStatusUpdate)
-      socket.off('batch-station-status-update', handleBatchStationStatusUpdate)
+      wsBus.off(WS_EVENTS.STATION.STREAM_READY, handleStreamReady)
+      wsBus.off(WS_EVENTS.STATION.INCOMING_CALL, handleIncomingCall)
+      wsBus.off(WS_EVENTS.STATION.STATUS_UPDATE, handleStationStatusUpdate)
+      wsBus.off(WS_EVENTS.STATION.BATCH_STATUS_UPDATE, handleBatchStationStatusUpdate)
     }
-  }, [signaling, streams])
+  }, [streams])
 
   return {
     streams,
@@ -319,8 +314,6 @@ export function useStationMonitor() {
     requestStream,
     closeStream,
     requestStationStatus,
-    createRoom: signaling.createRoom,
-    inviteStation: signaling.inviteStation,
     clearCall: (stationId: string) => {
         setIncomingCalls(prev => {
             const next = new Set(prev)

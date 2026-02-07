@@ -4,7 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useStationMonitor, MonitorStream, StationDeviceInfo } from '@/app/hooks/useStationMonitor'
 import { useLatency } from '@/app/hooks/useLatency'
-import { useSocketSignaling } from '@/app/hooks/useSocketSignaling'
+import { request } from '@/app/utils/request'
+import * as wsBus from '@/app/services/wsBus'
+import { WS_EVENTS } from '@/app/services/wsConstants'
 import { useStationStore } from '@/app/store/stationStore'
 import { useConnectionStore } from '@/app/store/connectionStore'
 
@@ -120,9 +122,8 @@ function MonitorPlayer({ stream }: { stream: MonitorStream }) {
 }
 
 export default function IoTPage() {
-  const { streams, logs, requestStream, closeStream, onlineStations, createRoom, inviteStation, incomingCalls, clearCall, requestStationStatus, stationLatencyMap } = useStationMonitor()
+  const { streams, logs, requestStream, closeStream, onlineStations, incomingCalls, clearCall, requestStationStatus, stationLatencyMap } = useStationMonitor()
   const { latency, startMeasuring, cleanup } = useLatency()
-  const signaling = useSocketSignaling()
   const hasError = useConnectionStore((s: any) => s.signalingError || s.mqttError)
   const [stationId, setStationId] = useState('')
   const [cameraId, setCameraId] = useState('cam_1')
@@ -131,7 +132,7 @@ export default function IoTPage() {
 
   // 仅在 IoT 页面 mount 时启动延迟测量
   useEffect(() => {
-    const cleanup2 = startMeasuring(() => signaling.getSocket())
+    const cleanup2 = startMeasuring(() => wsBus.getSocket())
     return () => {
       cleanup2()
       cleanup()
@@ -179,16 +180,17 @@ export default function IoTPage() {
   }
 
   const handleCall = async (sId: string) => {
-      try {
-          const roomId = await createRoom()
-          // 呼叫中状态清除可以后置，或者保留以显示"通话中"
-          // clearCall(sId) 
-          await inviteStation(sId, roomId)
-          clearCall(sId)
-          setActiveCallRoom(roomId)
-      } catch (err) {
-          console.error("Call failed", err)
-      }
+    try {
+      await wsBus.connect()
+      const data = await request.post<{ roomId: string }>('/rooms', {})
+      const roomId = data.roomId
+      if (!roomId) return
+      wsBus.emit(WS_EVENTS.STATION.INVITE, { stationId: sId, roomId })
+      clearCall(sId)
+      setActiveCallRoom(roomId)
+    } catch (err) {
+      console.error("Call failed", err)
+    }
   }
 
   return (

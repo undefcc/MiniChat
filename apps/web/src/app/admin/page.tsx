@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useUserStore } from '../store/userStore'
 
 interface RoomInfo {
   roomId: string
@@ -41,6 +42,7 @@ export default function AdminPage() {
   const [data, setData] = useState<MonitorData | null>(null)
   const [socket, setSocket] = useState<Socket | null>(null)
   const [connected, setConnected] = useState(false)
+  const token = useUserStore(s => s.token)
 
   useEffect(() => {
     // 连接到管理后台 WebSocket
@@ -50,6 +52,7 @@ export default function AdminPage() {
       'http://localhost:3101'
     const adminSocket = io(`${socketUrl}/admin`, {
       transports: ['websocket'],
+      auth: token ? { token } : undefined,
     })
 
     adminSocket.on('connect', () => {
@@ -71,7 +74,7 @@ export default function AdminPage() {
     return () => {
       adminSocket.disconnect()
     }
-  }, [])
+  }, [token])
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B'

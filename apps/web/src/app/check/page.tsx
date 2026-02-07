@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { request } from '../utils/request'
+import { resolveSignalingUrl } from '../utils/endpoints'
 
 export default function CheckPage() {
   const [checks, setChecks] = useState({
@@ -21,8 +23,7 @@ export default function CheckPage() {
   const runChecks = async () => {
     setLoading(true)
     const isHttps = window.location.protocol === 'https:'
-    const hostname = window.location.hostname
-    const url = `${isHttps ? 'https' : 'http'}://${hostname}:3101`
+    const url = resolveSignalingUrl()
     setSignalingUrl(url)
 
     const newChecks = {
@@ -33,9 +34,10 @@ export default function CheckPage() {
 
     // 检查信令服务是否可达
     try {
-      const response = await fetch(`${url}/socket.io/`, { 
-        method: 'GET',
-        mode: 'no-cors',
+      await request.get<void>('/socket.io/', {
+        service: 'signaling',
+        showToast: false,
+        timeout: 3000,
       })
       newChecks.signalingReachable = true
     } catch (err) {

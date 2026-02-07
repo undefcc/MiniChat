@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { useSocketSignaling } from './hooks/useSocketSignaling'
+import { request } from './utils/request'
 import { Camera, X, ShieldAlert, Download } from 'lucide-react'
+import { resolveSignalingUrl } from './utils/endpoints'
 
 export default function HomePage() {
   const [roomId, setRoomId] = useState('')
@@ -14,7 +15,6 @@ export default function HomePage() {
   const [showScanner, setShowScanner] = useState(false)
   const [showCertWarning, setShowCertWarning] = useState(false)
   const router = useRouter()
-  const signaling = useSocketSignaling()
   const scannerRef = useRef<HTMLDivElement>(null)
   const html5QrCodeRef = useRef<any>(null)
 
@@ -31,13 +31,14 @@ export default function HomePage() {
   const handleCreateRoom = async () => {
     try {
       setIsCreating(true)
-      await signaling.connect()
-      const newRoomId = await signaling.createRoom()
+      const data = await request.post<{ roomId: string }>('/rooms', {})
+      const newRoomId = data.roomId
+      if (!newRoomId) return
       router.push(`/room/${newRoomId}`)
     } catch (error: any) {
       console.error('创建房间失败:', error)
       const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:'
-      const signalingUrl = `${isSecure ? 'https' : 'http'}://${typeof window !== 'undefined' ? window.location.hostname : ''}:3101`
+      const signalingUrl = resolveSignalingUrl()
       
       let errorMsg = '创建房间失败！\n\n'
       if (error.message?.includes('timeout') || error.message?.includes('connect')) {
@@ -48,8 +49,7 @@ export default function HomePage() {
       } else {
         errorMsg += error.message || '未知错误'
       }
-      alert(errorMsg)
-      signaling.disconnect()
+      console.error(errorMsg)
     } finally {
       setIsCreating(false)
     }
@@ -220,7 +220,7 @@ export default function HomePage() {
                 <p className="font-semibold mt-2 text-orange-600 dark:text-orange-400">⚠️ 重要：</p>
                 <ol className="list-decimal list-inside space-y-0.5 ml-2">
                   <li>安装证书后需要<strong>重启浏览器</strong></li>
-                  <li>访问 <a href={`https://${typeof window !== 'undefined' ? window.location.hostname : ''}:3101`} target="_blank" className="underline">信令服务</a> 并接受证书</li>
+                  <li>访问 <a href={resolveSignalingUrl({ forceProtocol: 'https' })} target="_blank" className="underline">信令服务</a> 并接受证书</li>
                 </ol>
               </div>
               <Button

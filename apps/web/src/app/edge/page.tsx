@@ -1,13 +1,14 @@
 "use client"
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import mqtt from 'mqtt'
-import { useSocketSignaling } from '../hooks/useSocketSignaling'
+import * as wsBus from '../services/wsBus'
+import { WS_EVENTS } from '../services/wsConstants'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Video, Globe, Activity, ShieldCheck, MonitorPlay, Phone, VideoOff } from 'lucide-react'
+import { Globe, Activity, ShieldCheck, MonitorPlay, Phone, VideoOff } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { HUDVideoModal } from '@/components/HUDVideoModal'
 
@@ -57,7 +58,6 @@ export default function EdgePage() {
   
   const videoRef = useRef<HTMLVideoElement>(null)
   const mqttLoggedErrorRef = useRef(false)
-  const signaling = useSocketSignaling()
   const baseDevicesRef = useRef<DeviceStatusPayload[]>([
     { deviceId: 'cam_1', name: 'Entrance Camera', type: 'camera', status: 'online', metrics: {} },
     { deviceId: 'cam_2', name: 'Yard Camera', type: 'camera', status: 'online', metrics: {} },
@@ -65,9 +65,9 @@ export default function EdgePage() {
     { deviceId: 'door_1', name: 'Access Gate', type: 'controller', status: 'online', metrics: {} },
   ])
 
-  const addLog = (msg: string) => {
+  const addLog = useCallback((msg: string) => {
     setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 50))
-  }
+  }, [])
 
   const randomInRange = (min: number, max: number) => Math.round(min + Math.random() * (max - min))
 
@@ -135,24 +135,16 @@ export default function EdgePage() {
     if (!stationId) return
     try {
       setSignalingStatus('connecting')
-      await signaling.connect()
+      await wsBus.connect()
       setSignalingStatus('connected')
       
       // 等待注册确认
-      await signaling.registerStation(stationId)
+      const response = await wsBus.emitWithAckChecked(WS_EVENTS.STATION.REGISTER, { stationId }, 'Registration failed')
+      if (!response) return
       
       setIsRegistered(true)
       addLog(`系统：设备注册成功 - ${stationId}`)
       
-      const socket = signaling.getSocket()
-      if (socket) {
-        // 监听指令
-        socket.on('cmd-station-join-room', handleInvite)
-        socket.on('disconnect', () => {
-            setSignalingStatus('disconnected')
-            addLog('警告：信令服务断开')
-        })
-      }
     } catch (e: any) {
       setSignalingStatus('error', e.message)
       addLog(`错误：注册失败 - ${e.message}`)
@@ -160,28 +152,41 @@ export default function EdgePage() {
     }
   }
 
-  // 3. 处理邀请
-  const handleInvite = async (data: { roomId: string, inviterId: string }) => {
-      addLog(`事件：收到呼叫 - ${data.inviterId}`)
-      joinRoom(data.roomId)
-  }
-
-  // 5. 呼叫总控
-  const handleCallCenter = () => {
-      const socket = signaling.getSocket()
-      if (socket) {
-          socket.emit('station-call-center', { stationId })
-          addLog('操作：正在呼叫总控中心...')
-      }
-  }
-  
   // 4. 加入房间逻辑
-  const joinRoom = (roomId: string) => {
-      addLog(`系统：正在加入加密通道 ${roomId}...`)
-      setActiveRoomId(roomId)
+  const joinRoom = useCallback((roomId: string) => {
+    addLog(`系统：正在加入加密通道 ${roomId}...`)
+    setActiveRoomId(roomId)
+  }, [addLog])
+
+  // 5. 处理邀请
+  const handleInvite = useCallback((data: { roomId: string, inviterId: string }) => {
+    addLog(`事件：收到呼叫 - ${data.inviterId}`)
+    joinRoom(data.roomId)
+  }, [addLog, joinRoom])
+
+  const handleSignalingDisconnect = useCallback(() => {
+    setSignalingStatus('disconnected')
+    addLog('警告：信令服务断开')
+  }, [addLog, setSignalingStatus])
+
+  useEffect(() => {
+    if (!isRegistered) return
+    wsBus.on(WS_EVENTS.STATION.CMD_JOIN_ROOM, handleInvite)
+    wsBus.on(WS_EVENTS.CORE.DISCONNECT, handleSignalingDisconnect)
+
+    return () => {
+      wsBus.off(WS_EVENTS.STATION.CMD_JOIN_ROOM, handleInvite)
+      wsBus.off(WS_EVENTS.CORE.DISCONNECT, handleSignalingDisconnect)
+    }
+  }, [handleInvite, handleSignalingDisconnect, isRegistered])
+
+  // 6. 呼叫总控
+  const handleCallCenter = () => {
+    wsBus.emit(WS_EVENTS.STATION.CALL_CENTER, { stationId })
+    addLog('操作：正在呼叫总控中心...')
   }
 
-  // 6. 周期性上报设备状态 (MQTT)
+  // 7. 周期性上报设备状态 (MQTT)
   useEffect(() => {
     if (!isRegistered) return
 
@@ -246,16 +251,16 @@ export default function EdgePage() {
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <SystemAlertBanner />
       <HUDVideoModal
-         isOpen={!!activeRoomId}
-         onClose={() => setActiveRoomId(null)}
-         roomId={activeRoomId} 
-         iframeExtraParams="?autoJoin=true"
-         stationLabel={`${stationId.toUpperCase()}`}
-         subLabel="SECURE CONNECTION ACTIVE"
+        isOpen={!!activeRoomId}
+        onClose={() => setActiveRoomId(null)}
+        roomId={activeRoomId} 
+        iframeExtraParams="?autoJoin=true"
+        stationLabel={`${stationId.toUpperCase()}`}
+        subLabel="SECURE CONNECTION ACTIVE"
       />
 
-       {/* 顶部导航栏 */}
-       <header className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center px-8 z-50 shadow-sm">
+      {/* 顶部导航栏 */}
+      <header className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center px-8 z-50 shadow-sm">
           <div className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-800">
               <div className="bg-emerald-600 rounded-lg p-1.5 shadow-lg shadow-emerald-500/20">
                 <MonitorPlay className="w-5 h-5 text-white" />
@@ -267,11 +272,11 @@ export default function EdgePage() {
           </div>
           
           <div className="ml-auto flex items-center space-x-6 text-sm font-medium text-slate-500">
-             <GlobalStatusIndicator />
-             <div className="h-4 w-[1px] bg-slate-200"></div>
-             <div>v1.0.2</div>
+            <GlobalStatusIndicator />
+            <div className="h-4 w-[1px] bg-slate-200"></div>
+            <div>v1.0.2</div>
           </div>
-       </header>
+      </header>
 
       <div className="pt-24 max-w-[1600px] mx-auto grid grid-cols-12 gap-6 px-6 pb-6">
         
