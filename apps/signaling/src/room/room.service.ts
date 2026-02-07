@@ -11,12 +11,12 @@ interface Room {
 export class RoomService {
   private rooms = new Map<string, Room>()
 
-  createRoom(creatorId: string): string {
+  createRoom(creatorId?: string): string {
     const roomId = this.generateRoomId()
     this.rooms.set(roomId, {
       id: roomId,
-      creatorId,
-      peers: new Set([creatorId]),
+      creatorId: creatorId || 'http',
+      peers: creatorId ? new Set([creatorId]) : new Set(),
       createdAt: new Date(),
     })
     return roomId

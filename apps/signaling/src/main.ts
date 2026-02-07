@@ -1,12 +1,10 @@
 import { NestFactory } from '@nestjs/core'
+import { ConfigService } from '@nestjs/config'
 import { AppModule } from './app.module'
 import * as fs from 'fs'
 import * as path from 'path'
 
-const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100')
-  .split(',')
-  .map(origin => origin.trim())
-  .filter(Boolean)
+const defaultOrigins = ['http://localhost:3100', 'https://localhost:3100']
 
 async function bootstrap() {
   const defaultKeyPath = path.join(__dirname, '../../web/localhost+6-key.pem')
@@ -27,9 +25,28 @@ async function bootstrap() {
         }
       : undefined,
   )
-  
+
+  const config = app.get(ConfigService)
+  const corsOrigins = (config.get<string>('CORS_ORIGIN') || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+
   app.enableCors({
-    origin: CORS_ORIGINS,
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin) {
+        callback(null, true)
+        return
+      }
+
+      if (requestOrigin.includes('localhost') || requestOrigin.includes('127.0.0.1')) {
+        callback(null, true)
+        return
+      }
+
+      const allowed = new Set([...defaultOrigins, ...corsOrigins])
+      callback(null, allowed.has(requestOrigin))
+    },
     credentials: true,
   })
   

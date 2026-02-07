@@ -25,7 +25,8 @@ pipeline {
                     usernamePassword(credentialsId: 'aliyun-docker', usernameVariable: 'ALIYUN_DOCKER_USERNAME', passwordVariable: 'ALIYUN_DOCKER_PASSWORD'),
                     sshUserPrivateKey(credentialsId: 'ecs-server-key', keyFileVariable: 'SSH_KEY'),
                     string(credentialsId: 'minichat-cors-origin', variable: 'CORS_ORIGIN'),
-                    string(credentialsId: 'redis-password', variable: 'REDIS_PASSWORD')
+                    string(credentialsId: 'redis-password', variable: 'REDIS_PASSWORD'),
+                    string(credentialsId: 'mongodb-password', variable: 'MONGODB_PASSWORD')
                 ]) {
                     sh '''
                     # 部署应用
@@ -42,11 +43,13 @@ pipeline {
                         echo "清理旧镜像..."
                         docker rmi \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest 2>/dev/null || true
                         docker rmi \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest 2>/dev/null || true
+                        docker rmi \$REGISTRY/\$IMAGE_NAMESPACE/minichat-gateway:latest 2>/dev/null || true
                         
                         # 拉取最新镜像
                         echo "拉取最新镜像..."
                         docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-web:latest
                         docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest
+                        docker pull \$REGISTRY/\$IMAGE_NAMESPACE/minichat-gateway:latest
                         
                         # 创建网络（如果不存在）
                         echo "创建 Docker 网络..."
@@ -58,6 +61,8 @@ pipeline {
                         docker rm minichat-web 2>/dev/null || true
                         docker stop minichat-signaling 2>/dev/null || true
                         docker rm minichat-signaling 2>/dev/null || true
+                        docker stop minichat-gateway 2>/dev/null || true
+                        docker rm minichat-gateway 2>/dev/null || true
                         
                         # 验证镜像
                         echo "验证镜像..."
@@ -81,6 +86,24 @@ pipeline {
                           -p 3101:3101 \\
                           --restart unless-stopped \\
                           \$REGISTRY/\$IMAGE_NAMESPACE/minichat-signaling:latest
+
+                        # 启动 Gateway
+                        echo "启动 Gateway..."
+                        docker run -d \\
+                          --name minichat-gateway \\
+                          --network minichat-network \\
+                          --add-host=host.docker.internal:host-gateway \
+                          --log-driver json-file \\
+                          --log-opt max-size=10m \\
+                          --log-opt max-file=3 \\
+                          --log-opt compress=true \\
+                          -e NODE_ENV=production \\
+                          -e PORT=4000 \\
+                          -e CORS_ORIGIN=$CORS_ORIGIN \\
+                          -e MONGODB_URI="mongodb://host.docker.internal:27017/minichat" \\
+                          -p 4000:4000 \\
+                          --restart unless-stopped \\
+                          \$REGISTRY/\$IMAGE_NAMESPACE/minichat-gateway:latest
                         
                         # 启动 Web（使用 next start）
                         echo "启动 Web..."
@@ -126,6 +149,10 @@ EOF
                         echo ""
                         echo "检查 signaling 服务..."
                         docker logs --tail 20 minichat-signaling || echo "signaling 日志获取失败"
+
+                        echo ""
+                        echo "检查 gateway 服务..."
+                        docker logs --tail 20 minichat-gateway || echo "gateway 日志获取失败"
                         
                         echo ""
                         echo "检查 web 服务..."
@@ -155,7 +182,7 @@ EOF
                     
                     echo ""
                     echo "查看容器日志:"
-                    for container in minichat-web minichat-signaling; do
+                    for container in minichat-web minichat-signaling minichat-gateway; do
                         if docker ps -a --format "{{.Names}}" | grep -q "^\$container\$"; then
                             echo "=== \$container 日志 ==="
                             docker logs --tail 30 \$container 2>&1 || echo "无法获取日志"

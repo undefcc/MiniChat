@@ -11,6 +11,7 @@ import { Server, Socket } from 'socket.io'
 import { RoomService } from './room.service'
 import { Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
+import { wsError } from '../common/ws-errors'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
   .split(',')
@@ -80,7 +81,7 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const room = this.roomService.getRoom(roomId)
 
     if (!room) {
-      return { error: 'Room not found' }
+      return wsError('ROOM_NOT_FOUND', 'Room not found', { roomId })
     }
 
     client.join(roomId)

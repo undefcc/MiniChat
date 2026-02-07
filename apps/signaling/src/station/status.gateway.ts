@@ -10,6 +10,7 @@ import { StationService } from './station.service'
 import * as mqtt from 'mqtt'
 import { OnModuleInit, OnModuleDestroy, Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
+import { wsError } from '../common/ws-errors'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
   .split(',')
@@ -184,6 +185,6 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
         return { success: true, via: 'websocket' }
     }
     
-    return { error: 'Station unreachable' }
+    return wsError('STATION_UNREACHABLE', 'Station unreachable', { stationId: data.stationId })
   }
 }

@@ -11,6 +11,7 @@ import { Server, Socket } from 'socket.io'
 import { StationService } from './station.service'
 import { Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
+import { wsError } from '../common/ws-errors'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
   .split(',')
@@ -68,7 +69,10 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
     } catch (error) {
       console.error(`[StationGateway] Register failed for ${data.stationId}:`, error)
       // 返回友好的错误信息而不是让 NestJS 抛出 Internal Error
-      return { status: 'error', message: error instanceof Error ? error.message : 'Register failed' }
+      return wsError('INTERNAL', 'Register failed', {
+        stationId: data.stationId,
+        reason: error instanceof Error ? error.message : 'Unknown error',
+      })
     }
   }
 
@@ -80,7 +84,9 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
       return { stations }
     } catch (error) {
       console.error(`[StationGateway] Get online stations failed:`, error)
-      return { status: 'error', message: error instanceof Error ? error.message : 'Get stations failed', stations: [] }
+      return wsError('INTERNAL', 'Get stations failed', {
+        reason: error instanceof Error ? error.message : 'Unknown error',
+      })
     }
   }
 
@@ -92,7 +98,7 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
   ) {
     const stationSocketId = await this.stationService.getStationSocketId(data.stationId)
     if (!stationSocketId) {
-      return { error: 'Station offline' }
+      return wsError('STATION_OFFLINE', 'Station offline', { stationId: data.stationId })
     }
 
     console.log(`[StationGateway] Inviting station ${data.stationId} to room ${data.roomId}`)
@@ -128,7 +134,7 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect 
   ) {
     const edgeSocketId = await this.stationService.getStationSocketId(data.stationId)
     if (!edgeSocketId) {
-      return { error: 'Station offline or not found' }
+      return wsError('STATION_OFFLINE', 'Station offline or not found', { stationId: data.stationId })
     }
 
     console.log(`[StationGateway] Forwarding stream request: ${client.id} -> ${data.stationId}`)

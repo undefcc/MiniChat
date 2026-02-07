@@ -12,7 +12,7 @@ export class WsJwtAuthGuard implements CanActivate {
     const token = this.extractToken(client)
 
     if (!token) {
-      throw new WsException('Unauthorized')
+      throw new WsException({ code: 'UNAUTHORIZED', message: 'Unauthorized' })
     }
 
     try {
@@ -20,7 +20,7 @@ export class WsJwtAuthGuard implements CanActivate {
       client.data.user = payload
       return true
     } catch {
-      throw new WsException('Unauthorized')
+      throw new WsException({ code: 'UNAUTHORIZED', message: 'Unauthorized' })
     }
   }
 

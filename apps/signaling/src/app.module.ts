@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { RedisModule } from '@nestjs-modules/ioredis'
+import * as path from 'path'
 import { AdminGateway } from './admin/admin.gateway'
 import { MonitorService } from './admin/monitor.service'
 import { AuthModule } from './auth/auth.module'
@@ -11,6 +12,7 @@ import { StationModule } from './station/station.module'
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: [path.resolve(__dirname, '../../../.env'), '.env'],
     }),
     AuthModule,
     RedisModule.forRootAsync({
