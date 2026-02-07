@@ -4,10 +4,13 @@ import {
   SubscribeMessage,
   MessageBody,
   ConnectedSocket,
+  OnGatewayInit,
 } from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io'
 import { Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
+import { JwtVerifierService } from '../auth/jwt-verifier.service'
+import { applyWsAuthMiddleware } from '../auth/ws-auth.middleware'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
   .split(',')
@@ -28,9 +31,15 @@ const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://l
   },
 })
 @Injectable()
-export class SignalingGateway {
+export class SignalingGateway implements OnGatewayInit {
   @WebSocketServer()
   server: Server
+
+  constructor(private readonly verifier: JwtVerifierService) {}
+
+  afterInit(server: Server) {
+    applyWsAuthMiddleware(server, this.verifier)
+  }
 
   // 纯 WebRTC 信令交换
   // 注意：用户必须已经通过 ManagementGateway 加入了 create-room/join-room 对应的 socket.io 房间

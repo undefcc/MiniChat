@@ -4,6 +4,7 @@ import {
   SubscribeMessage,
   MessageBody,
   ConnectedSocket,
+  OnGatewayInit,
 } from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io'
 import { StationService } from './station.service'
@@ -11,6 +12,8 @@ import * as mqtt from 'mqtt'
 import { OnModuleInit, OnModuleDestroy, Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
 import { wsError } from '../common/ws-errors'
+import { JwtVerifierService } from '../auth/jwt-verifier.service'
+import { applyWsAuthMiddleware } from '../auth/ws-auth.middleware'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
   .split(',')
@@ -31,7 +34,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://l
   },
 })
 @Injectable()
-export class StatusGateway implements OnModuleInit, OnModuleDestroy {
+export class StatusGateway implements OnModuleInit, OnModuleDestroy, OnGatewayInit {
   @WebSocketServer()
   server: Server
 
@@ -46,7 +49,12 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private stationService: StationService,
+    private readonly verifier: JwtVerifierService,
   ) {}
+
+  afterInit(server: Server) {
+    applyWsAuthMiddleware(server, this.verifier)
+  }
 
   onModuleInit() {
     this.startStatusFlushLoop()

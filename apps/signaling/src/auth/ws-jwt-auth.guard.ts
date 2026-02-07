@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
 import { WsException } from '@nestjs/websockets'
 import { Socket } from 'socket.io'
 import { JwtVerifierService } from './jwt-verifier.service'
+import { extractTokenFromSocket } from './ws-auth.utils'
 
 @Injectable()
 export class WsJwtAuthGuard implements CanActivate {
@@ -9,7 +10,7 @@ export class WsJwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const client = context.switchToWs().getClient<Socket>()
-    const token = this.extractToken(client)
+    const token = extractTokenFromSocket(client)
 
     if (!token) {
       throw new WsException({ code: 'UNAUTHORIZED', message: 'Unauthorized' })
@@ -24,29 +25,4 @@ export class WsJwtAuthGuard implements CanActivate {
     }
   }
 
-  private extractToken(client: Socket): string | undefined {
-    const authToken = client.handshake.auth?.token
-    if (typeof authToken === 'string' && authToken.trim().length) {
-      return authToken.trim()
-    }
-
-    const header = client.handshake.headers?.authorization
-    if (Array.isArray(header)) {
-      const fromArray = header.find(item => item.toLowerCase().startsWith('bearer '))
-      if (fromArray) {
-        return fromArray.slice(7).trim()
-      }
-    } else if (typeof header === 'string') {
-      if (header.toLowerCase().startsWith('bearer ')) {
-        return header.slice(7).trim()
-      }
-    }
-
-    const queryToken = client.handshake.query?.token
-    if (typeof queryToken === 'string' && queryToken.trim().length) {
-      return queryToken.trim()
-    }
-
-    return undefined
-  }
 }

@@ -3,11 +3,14 @@ import {
   WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { UseGuards } from '@nestjs/common';
 import { MonitorService } from './monitor.service';
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
+import { JwtVerifierService } from '../auth/jwt-verifier.service';
+import { applyWsAuthMiddleware } from '../auth/ws-auth.middleware';
 
 @UseGuards(WsJwtAuthGuard)
 @WebSocketGateway({
@@ -16,13 +19,20 @@ import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
   },
   namespace: '/admin',
 })
-export class AdminGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class AdminGateway implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit {
   @WebSocketServer()
   server: Server;
 
   private updateInterval: NodeJS.Timeout | null = null;
 
-  constructor(private readonly monitorService: MonitorService) {}
+  constructor(
+    private readonly monitorService: MonitorService,
+    private readonly verifier: JwtVerifierService,
+  ) {}
+
+  afterInit(server: Server) {
+    applyWsAuthMiddleware(server, this.verifier)
+  }
 
   handleConnection(client: Socket) {
     console.log(`[Admin] Client connected: ${client.id}`);
