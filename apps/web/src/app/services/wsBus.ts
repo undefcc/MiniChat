@@ -1,5 +1,6 @@
 import type { Socket } from 'socket.io-client'
 import { useUiStore } from '../store/uiStore'
+import { useConnectionStore } from '../store/connectionStore'
 import { useUserStore } from '../store/userStore'
 import { getWsErrorInfo, isWsUnauthorized } from '../utils/wsErrors'
 import { buildAckError, isAckUnauthorized } from '../utils/wsAck'
@@ -18,6 +19,10 @@ const handleUnauthorized = () => {
   useUiStore.getState().openLogin(true)
 }
 
+const setSignalingStatus = (status: 'connected' | 'disconnected' | 'error' | 'connecting', error?: string | null) => {
+  useConnectionStore.getState().setSignalingStatus(status, error ?? null)
+}
+
 const handleWsError = (err: unknown, fallback: string, retry?: () => void | Promise<void>) => {
   if (isWsUnauthorized(err)) {
     handleUnauthorized()
@@ -25,6 +30,7 @@ const handleWsError = (err: unknown, fallback: string, retry?: () => void | Prom
   }
 
   const { message } = getWsErrorInfo(err, fallback)
+  setSignalingStatus('error', message)
   useUiStore.getState().showWsError(message, retry)
 }
 
@@ -53,12 +59,14 @@ const attachCoreListeners = (sock: Socket) => {
       return
     }
     const { message } = getWsErrorInfo(err, 'Socket connection error')
+    setSignalingStatus('error', message)
     handleWsError(err, `信令连接失败：${message}`, () => {
       void connect()
     })
   })
 
   sock.on('disconnect', (reason) => {
+    setSignalingStatus('disconnected')
     if (reason !== 'io client disconnect') {
       useUiStore.getState().showWsError(`信令连接断开：${reason}`, () => {
         void connect()
@@ -68,6 +76,7 @@ const attachCoreListeners = (sock: Socket) => {
 
   sock.on('error', (err: any) => {
     const { message } = getWsErrorInfo(err, 'Socket error')
+    setSignalingStatus('error', message)
     handleWsError(err, `信令错误：${message}`, () => {
       void connect()
     })
@@ -75,6 +84,7 @@ const attachCoreListeners = (sock: Socket) => {
 
   sock.on('exception', (err: any) => {
     const { message } = getWsErrorInfo(err, 'Socket exception')
+    setSignalingStatus('error', message)
     handleWsError(err, `信令异常：${message}`, () => {
       void connect()
     })
@@ -82,7 +92,10 @@ const attachCoreListeners = (sock: Socket) => {
 }
 
 export async function connect(): Promise<void> {
-  if (socket?.connected) return
+  if (socket?.connected) {
+    setSignalingStatus('connected')
+    return
+  }
 
   if (connecting) {
     const startedAt = Date.now()
@@ -98,6 +111,7 @@ export async function connect(): Promise<void> {
   }
 
   connecting = true
+  setSignalingStatus('connecting')
 
   const { io } = await import('socket.io-client')
   const socketUrl = resolveSocketUrl()
@@ -129,6 +143,7 @@ export async function connect(): Promise<void> {
     const onConnect = () => {
       connecting = false
       cleanup()
+      setSignalingStatus('connected')
       resolve()
     }
 
@@ -144,6 +159,7 @@ export async function connect(): Promise<void> {
       const { message } = getWsErrorInfo(err, 'Socket connection error')
       connecting = false
       cleanup()
+      setSignalingStatus('error', message)
       handleWsError(err, `信令连接失败：${message}`, () => {
         void connect()
       })
@@ -158,6 +174,7 @@ export async function connect(): Promise<void> {
         connecting = false
         cleanup()
         sock.disconnect()
+        setSignalingStatus('error', 'Socket connect timeout')
         reject(new Error('Socket connect timeout'))
       }
     }, 8000)
@@ -167,6 +184,7 @@ export async function connect(): Promise<void> {
 export function disconnect() {
   socket?.disconnect()
   socket = null
+  setSignalingStatus('disconnected')
 }
 
 export function getSocket(): Socket | null {

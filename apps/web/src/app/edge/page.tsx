@@ -51,7 +51,6 @@ export default function EdgePage() {
   const [isRegistered, setIsRegistered] = useState(false)
   const [logs, setLogs] = useState<string[]>([])
   const setMqttStatus = useConnectionStore(s => s.setMqttStatus)
-  const setSignalingStatus = useConnectionStore(s => s.setSignalingStatus)
   
   // Room State
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
@@ -134,9 +133,7 @@ export default function EdgePage() {
   const handleRegister = async () => {
     if (!stationId) return
     try {
-      setSignalingStatus('connecting')
       await wsBus.connect()
-      setSignalingStatus('connected')
       
       // 等待注册确认
       const response = await wsBus.emitWithAckChecked(WS_EVENTS.STATION.REGISTER, { stationId }, 'Registration failed')
@@ -146,7 +143,6 @@ export default function EdgePage() {
       addLog(`系统：设备注册成功 - ${stationId}`)
       
     } catch (e: any) {
-      setSignalingStatus('error', e.message)
       addLog(`错误：注册失败 - ${e.message}`)
       console.error(e)
     }
@@ -165,9 +161,8 @@ export default function EdgePage() {
   }, [addLog, joinRoom])
 
   const handleSignalingDisconnect = useCallback(() => {
-    setSignalingStatus('disconnected')
     addLog('警告：信令服务断开')
-  }, [addLog, setSignalingStatus])
+  }, [addLog])
 
   useEffect(() => {
     if (!isRegistered) return
