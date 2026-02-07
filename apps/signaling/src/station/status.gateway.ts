@@ -8,13 +8,15 @@ import {
 import { Server, Socket } from 'socket.io'
 import { StationService } from './station.service'
 import * as mqtt from 'mqtt'
-import { OnModuleInit, OnModuleDestroy, Injectable } from '@nestjs/common'
+import { OnModuleInit, OnModuleDestroy, Injectable, UseGuards } from '@nestjs/common'
+import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
   .split(',')
   .map(origin => origin.trim())
   .filter(Boolean)
 
+@UseGuards(WsJwtAuthGuard)
 @WebSocketGateway({
   cors: {
     origin: (requestOrigin, callback) => {

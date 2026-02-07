@@ -5,8 +5,11 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { UseGuards } from '@nestjs/common';
 import { MonitorService } from './monitor.service';
+import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
 
+@UseGuards(WsJwtAuthGuard)
 @WebSocketGateway({
   cors: {
     origin: '*',

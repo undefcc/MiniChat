@@ -25,6 +25,16 @@ services:
       - EMQX_ALLOW_ANONYMOUS=true # 开发环境允许匿名登录
     restart: unless-stopped
 
+  mongodb:
+    image: mongo:7
+    container_name: minichat-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
 volumes:
   redis_data:
   emqx_data:
+  mongodb_data:

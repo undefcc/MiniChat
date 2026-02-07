@@ -31,7 +31,7 @@ minichat/
 - **NestJS** - 渐进式 Node.js 框架
 - **Socket.IO** - 实时双向通信
 - **JWT** - 基于令牌的认证
-- **PostgreSQL** - 主数据库
+- **MongoDB** - 主数据库
 - **Redis** - 会话和房间状态管理
 
 ### 前端
@@ -184,7 +184,7 @@ pnpm lint             # 检查所有服务
 pnpm test             # 运行测试
 
 # Docker
-pnpm docker:up        # 启动 PostgreSQL 和 Redis
+pnpm docker:up        # 启动 MongoDB 和 Redis
 pnpm docker:down      # 停止所有容器
 ```
 
@@ -224,6 +224,25 @@ Content-Type: application/json
 }
 ```
 
+### 信令服务鉴权与诊断
+
+信令服务的 Socket.IO 需要携带 JWT：
+- 连接时通过 `auth.token` 传递，或使用 `Authorization: Bearer <token>`
+- 事件默认需要鉴权（已启用 Guard）
+
+本地可用环境变量覆盖（示例）：
+```
+JWT_ISSUER=http://localhost:9000
+JWT_AUDIENCE=local.chat
+JWT_SECRET=dev-secret
+```
+
+快速验证 token（signaling 端口 3101）：
+```bash
+GET http://localhost:3101/auth/diagnostics
+Authorization: Bearer <token>
+```
+
 ## 🎯 API 端点
 
 ### Gateway 服务（端口 4000）
@@ -261,7 +280,7 @@ docker-compose up --build
 
 关键变量：
 - `JWT_SECRET` - JWT 令牌密钥
-- `DATABASE_URL` - PostgreSQL 连接字符串
+ - `MONGODB_URI` - MongoDB 连接字符串
 - `REDIS_URL` - Redis 连接字符串
 - `CORS_ORIGIN` - 允许的 CORS 来源
 - `NEXT_PUBLIC_API_URL` - 前端使用的 Gateway API 地址

@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config'
 import { RedisModule } from '@nestjs-modules/ioredis'
 import { AdminGateway } from './admin/admin.gateway'
 import { MonitorService } from './admin/monitor.service'
+import { AuthModule } from './auth/auth.module'
 import { RoomModule } from './room/room.module'
 import { StationModule } from './station/station.module'
 
@@ -11,6 +12,7 @@ import { StationModule } from './station/station.module'
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    AuthModule,
     RedisModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {

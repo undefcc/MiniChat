@@ -1,24 +1,17 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { InjectModel } from '@nestjs/mongoose'
 import { JwtService } from '@nestjs/jwt'
-import * as bcrypt from 'bcrypt'
-
-export enum UserType {
-  GUEST = 'guest',
-  REGISTERED = 'registered',
-}
-
-export interface TokenPayload {
-  userId: string
-  type: UserType
-  nickname: string
-}
+import { Model } from 'mongoose'
+import * as bcrypt from 'bcryptjs'
+import { TokenPayload, UserType } from './auth.types'
+import { User, UserDocument } from './schemas/user.schema'
 
 @Injectable()
 export class AuthService {
-  // TODO: Replace with actual database
-  private users = new Map<string, any>()
-
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    @InjectModel(User.name) private userModel: Model<UserDocument>
+  ) {}
 
   async createGuestToken(nickname?: string): Promise<{ accessToken: string; user: any }> {
     const guestId = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}`
@@ -41,23 +34,29 @@ export class AuthService {
   }
 
   async register(email: string, password: string, nickname: string) {
-    if (this.users.has(email)) {
-      throw new UnauthorizedException('User already exists')
+    const existingUser = await this.userModel.findOne({ email }).lean()
+    if (existingUser) {
+      throw new UnauthorizedException('该用户已注册，请前往登录')
     }
 
     const hashedPassword = await bcrypt.hash(password, 10)
-    const userId = `user_${Date.now()}`
-
-    this.users.set(email, {
-      id: userId,
-      email,
-      password: hashedPassword,
-      nickname,
-      type: UserType.REGISTERED,
-    })
+    let user: UserDocument
+    try {
+      user = await this.userModel.create({
+        email,
+        password: hashedPassword,
+        nickname,
+        type: UserType.REGISTERED,
+      })
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        throw new UnauthorizedException('该用户已注册，请前往登录')
+      }
+      throw error
+    }
 
     const payload: TokenPayload = {
-      userId,
+      userId: user.id,
       type: UserType.REGISTERED,
       nickname,
     }
@@ -65,7 +64,7 @@ export class AuthService {
     return {
       accessToken: this.jwtService.sign(payload),
       user: {
-        id: userId,
+        id: user.id,
         email,
         nickname,
         type: UserType.REGISTERED,
@@ -74,14 +73,14 @@ export class AuthService {
   }
 
   async login(email: string, password: string) {
-    const user = this.users.get(email)
+    const user = await this.userModel.findOne({ email })
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials')
+      throw new UnauthorizedException('该用户不存在或密码错误')
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password)
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials')
+      throw new UnauthorizedException('该用户不存在或密码错误')
     }
 
     const payload: TokenPayload = {

@@ -11,13 +11,13 @@ A microservices-based video chat platform built with NestJS monorepo architectur
   - Signaling Service: Socket.IO WebRTC signaling and room management
   - Web: Next.js frontend
 - **Shared Libraries**: Common types, utilities, database models
-- **Databases**: PostgreSQL (user data), Redis (sessions, room state)
+- **Databases**: MongoDB (user data), Redis (sessions, room state)
 
 ## Tech Stack
 - Backend: NestJS, TypeScript
 - Frontend: Next.js 14, React, TypeScript
 - Real-time: Socket.IO
-- Databases: PostgreSQL, Redis
+- Databases: MongoDB, Redis
 - DevOps: Docker, Docker Compose
 
 ## Development Guidelines

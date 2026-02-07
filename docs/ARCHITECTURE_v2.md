@@ -12,7 +12,7 @@ MiniChat 是一个基于 **NestJS Monorepo** 微服务架构的实时视频平�
 | :--- | :--- | :--- |
 | **前端** | Next.js 14, React, TypeScript | 使用 TailwindCSS, Shadcn/UI |
 | **后端** | NestJS, Socket.IO | 微服务架构 |
-| **数据库** | PostgreSQL, Redis | 用户数据存 PG，信令状态存 Redis/内存 |
+| **数据库** | MongoDB, Redis | 用户数据存 MongoDB，信令状态存 Redis |
 | **实时通信** | WebRTC, WebSocket (Socket.IO) | 信令与媒体分层 |
 | **流媒体** | WebRTC (P2P), FFmpeg/MediaMTX (IoT) | 支持 VP8/H.264 协商 |
 | **DevOps** | Docker, Docker Compose, pnpm | Monorepo 管理 |
@@ -36,6 +36,7 @@ MiniChat 是一个基于 **NestJS Monorepo** 微服务架构的实时视频平�
     *   **核心模块**:
         *   `RoomService`: 管理 P2P 房间状态，以及**边缘站点注册表 (Station Registry)**。
         *   `SignalingGateway`: Socket.IO 网关，处理 Offer/Answer 转发及控制指令路由。
+        *   `StationService`: 站点注册与在线列表存储在 Redis（`stationId`/`socketId` 双向映射、元信息、在线集合）。
     *   **新特性**: 支持基于 `stationId` 的定向路由（Client -> Cloud -> Generic Edge Node）。
 
 *   **Media Server (可选/第三方)**
