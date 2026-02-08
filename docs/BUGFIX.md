@@ -133,3 +133,33 @@ InvalidStateError: Failed to execute 'setRemoteDescription' on 'RTCPeerConnectio
 - 挂断后不会触发 ICE 重连
 - `peer-disconnected` 不会重复清理
 - 通话状态稳定回到 idle
+
+## 05. WebSocket ack 类型不一致导致构建失败 (2026-02-08)
+
+### 案发现场
+Docker 构建在 `pnpm build` 阶段失败，类型报错指向 `wsBus.ts`：
+
+```
+Type error: Argument of type 'Awaited<T>' is not assignable to parameter of type 'WsAckError | null | undefined'.
+```
+
+### 侦探分析
+`emitWithAckChecked<T>` 允许业务传入任意 `T` 作为 ack 响应，但 `buildAckError`/`isAckUnauthorized`
+只接受 `WsAckError | null | undefined`，导致泛型结果无法通过类型检查。
+
+这是典型的“外部输入类型不可信”的场景：ACK 可能是成功数据或错误结构，
+不应该在函数签名层面强行假设其形状。
+
+### 修复方案
+将 ACK 解析函数改为接收 `unknown`，在内部做类型守卫与收窄：
+
+1. 增加 `toAckError` 作为 runtime 检查，将 `unknown` 安全转换为 `WsAckError`。
+2. `buildAckError`/`isAckUnauthorized` 改为接收 `unknown`。
+
+核心改动位于：
+- apps/web/src/app/utils/wsAck.ts
+
+### 验证要点
+- `pnpm build` 不再因泛型 ACK 报错
+- ACK 成功/失败路径行为一致
+- 未改变业务层调用方式
