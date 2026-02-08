@@ -6,24 +6,30 @@ export type WsAckError = {
   message?: string
 }
 
-export function getAckErrorPayload(response: WsAckError | null | undefined) {
-  if (!response) return null
-  if (response.error) {
-    return typeof response.error === 'string' ? { message: response.error } : response.error
+const toAckError = (response: unknown): WsAckError | null => {
+  if (!response || typeof response !== 'object') return null
+  return response as WsAckError
+}
+
+export function getAckErrorPayload(response: unknown) {
+  const ack = toAckError(response)
+  if (!ack) return null
+  if (ack.error) {
+    return typeof ack.error === 'string' ? { message: ack.error } : ack.error
   }
-  if (response.status === 'error') {
-    return { code: 'INTERNAL', message: response.message || 'Request failed' }
+  if (ack.status === 'error') {
+    return { code: 'INTERNAL', message: ack.message || 'Request failed' }
   }
   return null
 }
 
-export function buildAckError(response: WsAckError | null | undefined, fallbackMessage: string) {
+export function buildAckError(response: unknown, fallbackMessage: string) {
   const payload = getAckErrorPayload(response)
   if (!payload) return null
   return getWsErrorInfo(payload, fallbackMessage)
 }
 
-export function isAckUnauthorized(response: WsAckError | null | undefined) {
+export function isAckUnauthorized(response: unknown) {
   const payload = getAckErrorPayload(response)
   if (!payload) return false
   return isWsUnauthorized(payload)
