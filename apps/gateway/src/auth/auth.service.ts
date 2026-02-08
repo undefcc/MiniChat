@@ -5,22 +5,26 @@ import { Model } from 'mongoose'
 import * as bcrypt from 'bcryptjs'
 import { TokenPayload, UserType } from './auth.types'
 import { User, UserDocument } from './schemas/user.schema'
+import { SessionService } from './session.service'
 
 @Injectable()
 export class AuthService {
   constructor(
     private jwtService: JwtService,
-    @InjectModel(User.name) private userModel: Model<UserDocument>
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private readonly sessionService: SessionService,
   ) {}
 
   async createGuestToken(nickname?: string): Promise<{ accessToken: string; user: any }> {
     const guestId = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}`
     const guestNickname = nickname || `访客${Math.floor(Math.random() * 9999)}`
 
+    const sessionId = await this.sessionService.createSession(guestId)
     const payload: TokenPayload = {
       userId: guestId,
       type: UserType.GUEST,
       nickname: guestNickname,
+      sessionId,
     }
 
     return {
@@ -55,10 +59,12 @@ export class AuthService {
       throw error
     }
 
+    const sessionId = await this.sessionService.createSession(user.id)
     const payload: TokenPayload = {
       userId: user.id,
       type: UserType.REGISTERED,
       nickname,
+      sessionId,
     }
 
     return {
@@ -83,10 +89,12 @@ export class AuthService {
       throw new UnauthorizedException('该用户不存在或密码错误')
     }
 
+    const sessionId = await this.sessionService.createSession(user.id)
     const payload: TokenPayload = {
       userId: user.id,
       type: user.type,
       nickname: user.nickname,
+      sessionId,
     }
 
     return {

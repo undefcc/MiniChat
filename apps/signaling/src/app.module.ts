@@ -32,8 +32,8 @@ import { StationModule } from './station/station.module'
     StationModule,
   ],
   providers: [
-      AdminGateway, 
-      MonitorService
+      AdminGateway,
+      MonitorService,
   ],
 })
 export class AppModule {}

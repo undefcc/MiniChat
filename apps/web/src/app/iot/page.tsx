@@ -185,7 +185,10 @@ export default function IoTPage() {
       const data = await request.post<{ roomId: string }>('/rooms', {})
       const roomId = data.roomId
       if (!roomId) return
-      wsBus.emit(WS_EVENTS.STATION.INVITE, { stationId: sId, roomId })
+      await wsBus.emitWithAck(
+        WS_EVENTS.STATION.INVITE,
+        { stationId: sId, roomId }
+      )
       clearCall(sId)
       setActiveCallRoom(roomId)
     } catch (err) {

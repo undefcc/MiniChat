@@ -10,6 +10,8 @@ import { Server, Socket } from 'socket.io'
 import { Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
 import { JwtVerifierService } from '../auth/jwt-verifier.service'
+import { SessionStoreService } from '../auth/session-store.service'
+import { SocketRegistryService } from '../auth/socket-registry.service'
 import { applyWsAuthMiddleware } from '../auth/ws-auth.middleware'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
@@ -35,10 +37,15 @@ export class SignalingGateway implements OnGatewayInit {
   @WebSocketServer()
   server: Server
 
-  constructor(private readonly verifier: JwtVerifierService) {}
+  constructor(
+    private readonly verifier: JwtVerifierService,
+    private readonly sessionStore: SessionStoreService,
+    private readonly socketRegistry: SocketRegistryService,
+  ) {}
 
   afterInit(server: Server) {
-    applyWsAuthMiddleware(server, this.verifier)
+    this.socketRegistry.register(server)
+    applyWsAuthMiddleware(server, this.verifier, this.sessionStore)
   }
 
   // 纯 WebRTC 信令交换

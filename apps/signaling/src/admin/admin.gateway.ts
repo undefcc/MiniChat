@@ -10,6 +10,8 @@ import { UseGuards } from '@nestjs/common';
 import { MonitorService } from './monitor.service';
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
 import { JwtVerifierService } from '../auth/jwt-verifier.service';
+import { SessionStoreService } from '../auth/session-store.service';
+import { SocketRegistryService } from '../auth/socket-registry.service';
 import { applyWsAuthMiddleware } from '../auth/ws-auth.middleware';
 
 @UseGuards(WsJwtAuthGuard)
@@ -28,10 +30,13 @@ export class AdminGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   constructor(
     private readonly monitorService: MonitorService,
     private readonly verifier: JwtVerifierService,
+    private readonly sessionStore: SessionStoreService,
+    private readonly socketRegistry: SocketRegistryService,
   ) {}
 
   afterInit(server: Server) {
-    applyWsAuthMiddleware(server, this.verifier)
+    this.socketRegistry.register(server)
+    applyWsAuthMiddleware(server, this.verifier, this.sessionStore)
   }
 
   handleConnection(client: Socket) {

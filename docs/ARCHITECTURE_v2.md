@@ -84,7 +84,7 @@ MiniChat 是一个基于 **NestJS Monorepo** 微服务架构的实时视频平�
     *   Web 发送 `cmd-request-stream { stationId: 'bj_01', cameraId: 'cam_1' }`。
 3.  **路由 (Route)**:
     *   云端查找 `'bj_01'` 对应的 `SocketID_X`。
-    *   云端向总控发送 `cmd-start-stream`。
+    *   云端向总控发送 `station-cmd-start-stream`。
 4.  **推流 (Stream)**:
     *   总控收到指令，启动 FFmpeg 拉取本地 RTSP 流。
     *   总控将流转码并推送到流媒体服务器（或建立 P2P WebRTC）。

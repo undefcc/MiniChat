@@ -3,9 +3,11 @@ import { JwtModule } from '@nestjs/jwt'
 import { MongooseModule } from '@nestjs/mongoose'
 import { PassportModule } from '@nestjs/passport'
 import { ConfigModule, ConfigService } from '@nestjs/config'
+import { RedisModule } from '@nestjs-modules/ioredis'
 import { AuthController } from './auth.controller'
 import { AuthService } from './auth.service'
 import { JwtStrategy } from './jwt.strategy'
+import { SessionService } from './session.service'
 import { User, UserSchema } from './schemas/user.schema'
 
 @Module({
@@ -20,9 +22,22 @@ import { User, UserSchema } from './schemas/user.schema'
       }),
       inject: [ConfigService],
     }),
+    RedisModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const url = config.get<string>('REDIS_URL', 'redis://localhost:6379')
+        const password = config.get<string>('REDIS_PASSWORD')
+
+        return {
+          type: 'single',
+          url,
+          options: password ? { password } : undefined,
+        }
+      },
+    }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, SessionService],
   exports: [AuthService],
 })
 export class AuthModule {}

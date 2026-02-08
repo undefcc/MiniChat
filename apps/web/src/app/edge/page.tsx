@@ -136,8 +136,15 @@ export default function EdgePage() {
       await wsBus.connect()
       
       // 等待注册确认
-      const response = await wsBus.emitWithAckChecked(WS_EVENTS.STATION.REGISTER, { stationId }, 'Registration failed')
-      if (!response) return
+      const response = await wsBus.emitWithAck<{ stationId?: string }>(
+        WS_EVENTS.STATION.REGISTER,
+        { stationId },
+      )
+      console.log('response', response)
+      if (!response?.stationId) {
+        addLog('错误：注册失败')
+        return
+      }
       
       setIsRegistered(true)
       addLog(`系统：设备注册成功 - ${stationId}`)
@@ -176,9 +183,16 @@ export default function EdgePage() {
   }, [handleInvite, handleSignalingDisconnect, isRegistered])
 
   // 6. 呼叫总控
-  const handleCallCenter = () => {
-    wsBus.emit(WS_EVENTS.STATION.CALL_CENTER, { stationId })
-    addLog('操作：正在呼叫总控中心...')
+  const handleCallCenter = async () => {
+    try {
+      await wsBus.emitWithAck( 
+        WS_EVENTS.STATION.CALL_CENTER,
+        { stationId }
+      )
+      addLog('操作：正在呼叫总控中心...')
+    } catch (e: any) {
+      addLog(`错误：呼叫失败 - ${e.message}`)
+    }
   }
 
   // 7. 周期性上报设备状态 (MQTT)

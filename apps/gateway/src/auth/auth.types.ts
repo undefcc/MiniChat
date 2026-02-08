@@ -7,4 +7,5 @@ export interface TokenPayload {
   userId: string
   type: UserType
   nickname: string
+  sessionId: string
 }

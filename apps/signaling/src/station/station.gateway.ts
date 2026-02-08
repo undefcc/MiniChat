@@ -12,8 +12,10 @@ import { Server, Socket } from 'socket.io'
 import { StationService } from './station.service'
 import { Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
-import { wsError } from '../common/ws-errors'
+import { wsException } from '../common/ws-errors'
 import { JwtVerifierService } from '../auth/jwt-verifier.service'
+import { SessionStoreService } from '../auth/session-store.service'
+import { SocketRegistryService } from '../auth/socket-registry.service'
 import { applyWsAuthMiddleware } from '../auth/ws-auth.middleware'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
@@ -42,10 +44,13 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect,
   constructor(
     private stationService: StationService,
     private readonly verifier: JwtVerifierService,
+    private readonly sessionStore: SessionStoreService,
+    private readonly socketRegistry: SocketRegistryService,
   ) {}
 
   afterInit(server: Server) {
-    applyWsAuthMiddleware(server, this.verifier)
+    this.socketRegistry.register(server)
+    applyWsAuthMiddleware(server, this.verifier, this.sessionStore)
   }
 
   handleConnection(client: Socket) {
@@ -63,7 +68,7 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect,
   // --- Station Management ---
 
   // 1. 站点上线注册 (Edge -> Cloud)
-  @SubscribeMessage('register-station')
+  @SubscribeMessage('station-register')
   async handleRegisterStation(
     @MessageBody() data: { stationId: string; sessionId?: string },
     @ConnectedSocket() client: Socket,
@@ -73,14 +78,11 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect,
       await this.stationService.registerStation(data.stationId, client.id, { sessionId: data.sessionId })
       // 广播给前端：站点上线
       this.server.emit('station-connected', { stationId: data.stationId })
-      return { success: true }
+      return { stationId: data.stationId }
     } catch (error) {
       console.error(`[StationGateway] Register failed for ${data.stationId}:`, error)
       // 返回友好的错误信息而不是让 NestJS 抛出 Internal Error
-      return wsError('INTERNAL', 'Register failed', {
-        stationId: data.stationId,
-        reason: error instanceof Error ? error.message : 'Unknown error',
-      })
+      throw wsException('INTERNAL', 'Register failed')
     }
   }
 
@@ -92,32 +94,30 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect,
       return { stations }
     } catch (error) {
       console.error(`[StationGateway] Get online stations failed:`, error)
-      return wsError('INTERNAL', 'Get stations failed', {
-        reason: error instanceof Error ? error.message : 'Unknown error',
-      })
+      throw wsException('INTERNAL', 'Get stations failed')
     }
   }
 
   // 邀请站点加入房间 (反向呼叫/对讲)
-  @SubscribeMessage('invite-station')
+  @SubscribeMessage('station-invite')
   async handleInviteStation(
     @MessageBody() data: { stationId: string; roomId: string },
     @ConnectedSocket() client: Socket,
   ) {
     const stationSocketId = await this.stationService.getStationSocketId(data.stationId)
     if (!stationSocketId) {
-      return wsError('STATION_OFFLINE', 'Station offline', { stationId: data.stationId })
+      throw wsException('STATION_OFFLINE', 'Station offline')
     }
 
     console.log(`[StationGateway] Inviting station ${data.stationId} to room ${data.roomId}`)
     
     // 发指令给 Edge
-    this.server.to(stationSocketId).emit('cmd-station-join-room', {
+    this.server.to(stationSocketId).emit('station-cmd-join-room', {
       roomId: data.roomId,
       inviterId: client.id
     })
     
-    return { success: true }
+    return undefined
   }
 
   // 站点呼叫总控/求助 (Edge -> Center)
@@ -127,42 +127,42 @@ export class StationGateway implements OnGatewayConnection, OnGatewayDisconnect,
     @ConnectedSocket() client: Socket,
   ) {
     console.log(`[StationGateway] Station ${data.stationId} is calling center`)
-    this.server.emit('incoming-call', { 
+    this.server.emit('station-incoming-call', { 
       stationId: data.stationId, 
       timestamp: Date.now() 
     })
-    return { success: true }
+    return undefined
   }
 
   // 前端请求查看视频 (Cloud -> Edge)
-  @SubscribeMessage('cmd-request-stream')
+  @SubscribeMessage('station-cmd-request-stream')
   async handleRequestStream(
     @MessageBody() data: { stationId: string; cameraId: string; offer?: RTCSessionDescriptionInit },
     @ConnectedSocket() client: Socket,
   ) {
     const edgeSocketId = await this.stationService.getStationSocketId(data.stationId)
     if (!edgeSocketId) {
-      return wsError('STATION_OFFLINE', 'Station offline or not found', { stationId: data.stationId })
+      throw wsException('STATION_OFFLINE', 'Station offline or not found')
     }
 
     console.log(`[StationGateway] Forwarding stream request: ${client.id} -> ${data.stationId}`)
     
-    this.server.to(edgeSocketId).emit('cmd-start-stream', {
+    this.server.to(edgeSocketId).emit('station-cmd-start-stream', {
       requesterId: client.id,
       cameraId: data.cameraId,
       offer: data.offer
     })
     
-    return { success: true, status: 'request-sent' }
+    return { status: 'request-sent' }
   }
 
   // 总控回复流信息
-  @SubscribeMessage('cmd-stream-response')
+  @SubscribeMessage('station-cmd-stream-response')
   async handleStreamResponse(
     @MessageBody() data: { requesterId: string; status: string; url?: string; answer?: RTCSessionDescriptionInit; error?: string },
     @ConnectedSocket() client: Socket,
   ) {
-    this.server.to(data.requesterId).emit('stream-ready', {
+    this.server.to(data.requesterId).emit('station-stream-ready', {
       stationId: await this.stationService.getStationId(client.id) || 'unknown',
       ...data
     })

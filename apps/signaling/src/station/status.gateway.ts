@@ -11,8 +11,10 @@ import { StationService } from './station.service'
 import * as mqtt from 'mqtt'
 import { OnModuleInit, OnModuleDestroy, Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
-import { wsError } from '../common/ws-errors'
+import { wsException } from '../common/ws-errors'
 import { JwtVerifierService } from '../auth/jwt-verifier.service'
+import { SessionStoreService } from '../auth/session-store.service'
+import { SocketRegistryService } from '../auth/socket-registry.service'
 import { applyWsAuthMiddleware } from '../auth/ws-auth.middleware'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
@@ -50,10 +52,13 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy, OnGatewayIn
   constructor(
     private stationService: StationService,
     private readonly verifier: JwtVerifierService,
+    private readonly sessionStore: SessionStoreService,
+    private readonly socketRegistry: SocketRegistryService,
   ) {}
 
   afterInit(server: Server) {
-    applyWsAuthMiddleware(server, this.verifier)
+    this.socketRegistry.register(server)
+    applyWsAuthMiddleware(server, this.verifier, this.sessionStore)
   }
 
   onModuleInit() {
@@ -166,7 +171,7 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy, OnGatewayIn
 
   // 前端请求站点设备状态 (Center -> Edge)
   // 如果是 MQTT 设备，我们需要通过 MQTT 下发指令
-  @SubscribeMessage('request-station-status')
+  @SubscribeMessage('station-request-status')
   async handleRequestStationStatus(
     @MessageBody() data: { stationId: string },
     @ConnectedSocket() client: Socket,
@@ -181,7 +186,7 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy, OnGatewayIn
                 requesterId: client.id
             }
             this.mqttClient.publish(`stations/${data.stationId}/cmd`, JSON.stringify(cmd))
-            return { success: true, via: 'mqtt' }
+            return { via: 'mqtt' }
         }
     }
     
@@ -190,9 +195,9 @@ export class StatusGateway implements OnModuleInit, OnModuleDestroy, OnGatewayIn
         this.server.to(stationSocketId).emit('cmd-report-status', {
             requesterId: client.id
         })
-        return { success: true, via: 'websocket' }
+        return { via: 'websocket' }
     }
     
-    return wsError('STATION_UNREACHABLE', 'Station unreachable', { stationId: data.stationId })
+    throw wsException('STATION_UNREACHABLE', 'Station unreachable')
   }
 }

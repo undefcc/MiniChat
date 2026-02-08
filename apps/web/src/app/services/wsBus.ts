@@ -2,52 +2,80 @@ import type { Socket } from 'socket.io-client'
 import { useUiStore } from '../store/uiStore'
 import { useConnectionStore } from '../store/connectionStore'
 import { useUserStore } from '../store/userStore'
-import { getWsErrorInfo, isWsUnauthorized } from '../utils/wsErrors'
-import { buildAckError, isAckUnauthorized } from '../utils/wsAck'
+import { WS_EVENTS } from './wsConstants'
 
 export type WsEventHandler = (...args: any[]) => void
 
+// 统一的 Socket.IO 通道：错误归一化、鉴权驱动的重连控制、ack 处理
 type HandlerMap = Map<string, Set<WsEventHandler>>
 
-const handlers: HandlerMap = new Map()
-let socket: Socket | null = null
-let connecting = false
+type SocketIssueOptions = {
+  prefix?: string
+  retry?: () => void | Promise<void>
+  allowRetry?: boolean
+  fallback?: string
+}
 
+const handlers: HandlerMap = new Map()
+// 全局单例 socket 实例
+let socket: Socket | null = null
+// 防止并发 connect() 造成竞态
+let connecting = false
+// 在被踢/登出后禁止自动重连
+let allowReconnect = true
+// 记录当前 socket 使用的 token
+let lastToken: string | null = null
+
+// 将 UNAUTHORIZED 视为登出触发条件
+const isWsUnauthorized = (err: unknown): boolean => {
+  if (!err) return false
+  const message = typeof err === 'string'
+    ? err
+    : typeof (err as Record<string, unknown>)?.message === 'string'
+        ? String((err as Record<string, unknown>).message)
+        : ''
+  const normalized = message.toLowerCase()
+  return normalized.includes('unauthorized') || normalized.includes('jwt') || normalized.includes('401')
+}
+
+// 被踢/登出后清理鉴权并禁止重连
 const handleUnauthorized = () => {
+  allowReconnect = false
+  disconnect()
   useUserStore.getState().clearAuth()
   useUiStore.getState().invalidateAuth()
   useUiStore.getState().openLogin(() => useUiStore.getState().runAuthResume())
 }
 
+// 统一更新 UI 的连接状态
 const setSignalingStatus = (status: 'connected' | 'disconnected' | 'error' | 'connecting', error?: string | null) => {
   useConnectionStore.getState().setSignalingStatus(status, error ?? null)
 }
 
-const createDeferred = <T>() => {
-  let resolve: (value: T | null) => void
-  let reject: (reason?: unknown) => void
-  const promise = new Promise<T | null>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve: resolve!, reject: reject! }
-}
-
-const setAuthResume = (resume: () => Promise<unknown>, reject?: (reason?: unknown) => void) => {
-  useUiStore.getState().setAuthResume(resume, reject || null)
-}
-
-const handleWsError = (err: unknown, fallback: string, retry?: () => void | Promise<void>) => {
+// 统一处理连接错误与鉴权问题
+const handleSocketIssue = (err: unknown, options: SocketIssueOptions = {}) => {
   if (isWsUnauthorized(err)) {
     handleUnauthorized()
     return
   }
 
-  const { message } = getWsErrorInfo(err, fallback)
-  setSignalingStatus('error', message)
-  useUiStore.getState().showWsError(message, retry)
+  const rawMessage = typeof err === 'string'
+    ? err
+    : typeof (err as Record<string, unknown>)?.message === 'string'
+        ? String((err as Record<string, unknown>).message)
+        : options.fallback || '连接错误'
+  const finalMessage = options.prefix ? `${options.prefix}${rawMessage}` : String(rawMessage)
+  setSignalingStatus('error', finalMessage)
+
+  if (options.allowRetry && options.retry) {
+    useUiStore.getState().showWsError(finalMessage, options.retry)
+    return
+  }
+
+  useUiStore.getState().showWsError(finalMessage)
 }
 
+// 从环境变量或当前域名解析信令地址
 const resolveSocketUrl = () => {
   const envUrl = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_SIGNALING_URL
   if (envUrl) return envUrl
@@ -57,6 +85,7 @@ const resolveSocketUrl = () => {
   return `${protocol}//${hostname}:3101`
 }
 
+// 重新绑定所有已注册的事件处理器
 const attachHandlers = (sock: Socket) => {
   handlers.forEach((set, event) => {
     set.forEach(handler => {
@@ -66,49 +95,77 @@ const attachHandlers = (sock: Socket) => {
   })
 }
 
+// 核心监听：处理踢下线与重连策略
 const attachCoreListeners = (sock: Socket) => {
+  sock.on(WS_EVENTS.CORE.KICKED, (payload?: { reason?: string }) => {
+    const reason = payload?.reason ? ` (${payload.reason})` : ''
+    useUiStore.getState().showWsError(`账号已在其他位置登录${reason}`)
+    handleUnauthorized()
+  })
+
   sock.on('connect_error', (err: any) => {
-    if (isWsUnauthorized(err)) {
-      handleUnauthorized()
-      return
-    }
-    const { message } = getWsErrorInfo(err, 'Socket connection error')
-    setSignalingStatus('error', message)
-    handleWsError(err, `信令连接失败：${message}`, () => {
-      void connect()
+    handleSocketIssue(err, {
+      fallback: 'Socket connection error',
+      prefix: '信令连接失败：',
+      allowRetry: allowReconnect,
+      retry: allowReconnect ? () => connect() : undefined,
     })
   })
 
   sock.on('disconnect', (reason) => {
     setSignalingStatus('disconnected')
     if (reason !== 'io client disconnect') {
-      useUiStore.getState().showWsError(`信令连接断开：${reason}`, () => {
-        void connect()
-      })
+      if (allowReconnect) {
+        useUiStore.getState().showWsError(`信令连接断开：${reason}`, () => {
+          void connect()
+        })
+      } else {
+        useUiStore.getState().showWsError(`信令连接断开：${reason}`)
+      }
     }
   })
 
   sock.on('error', (err: any) => {
-    const { message } = getWsErrorInfo(err, 'Socket error')
-    setSignalingStatus('error', message)
-    handleWsError(err, `信令错误：${message}`, () => {
-      void connect()
+    handleSocketIssue(err, {
+      fallback: 'Socket error',
+      prefix: '信令错误：',
+      allowRetry: allowReconnect,
+      retry: allowReconnect ? () => connect() : undefined,
     })
   })
 
   sock.on('exception', (err: any) => {
-    const { message } = getWsErrorInfo(err, 'Socket exception')
-    setSignalingStatus('error', message)
-    handleWsError(err, `信令异常：${message}`, () => {
-      void connect()
+    handleSocketIssue(err, {
+      fallback: 'Socket exception',
+      prefix: '信令异常：',
+      allowRetry: allowReconnect,
+      retry: allowReconnect ? () => connect() : undefined,
     })
   })
 }
 
+// 使用最新 token 建立连接
 export async function connect(): Promise<void> {
   if (socket?.connected) {
     setSignalingStatus('connected')
     return
+  }
+
+  // 显式 connect() 时恢复重连开关
+  allowReconnect = true
+
+  // 所有 WS 操作都需要鉴权
+  const token = useUserStore.getState().token
+  if (!token) {
+    connecting = false
+    setSignalingStatus('disconnected')
+    handleUnauthorized()
+    return
+  }
+
+  // token 变化时重建 socket，避免旧鉴权
+  if (socket && lastToken && lastToken !== token) {
+    disconnect()
   }
 
   if (connecting) {
@@ -131,7 +188,7 @@ export async function connect(): Promise<void> {
   const socketUrl = resolveSocketUrl()
   const isSecure = socketUrl ? socketUrl.startsWith('https://') : (typeof window !== 'undefined' && window.location.protocol === 'https:')
   const isDev = process.env.NODE_ENV === 'development'
-  const token = useUserStore.getState().token
+  lastToken = token
 
   return new Promise<void>((resolve, reject) => {
     const sock = io(socketUrl || '', {
@@ -142,7 +199,7 @@ export async function connect(): Promise<void> {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      auth: token ? { token } : undefined,
+      auth: { token },
     })
 
     socket = sock
@@ -162,21 +219,17 @@ export async function connect(): Promise<void> {
     }
 
     const onConnectError = (err: any) => {
-      if (isWsUnauthorized(err)) {
-        connecting = false
-        cleanup()
-        handleUnauthorized()
-        disconnect()
-        reject(err)
-        return
-      }
-      const { message } = getWsErrorInfo(err, 'Socket connection error')
       connecting = false
       cleanup()
-      setSignalingStatus('error', message)
-      handleWsError(err, `信令连接失败：${message}`, () => {
-        void connect()
+      handleSocketIssue(err, {
+        fallback: 'Socket connection error',
+        prefix: '信令连接失败：',
+        allowRetry: true,
+        retry: () => connect(),
       })
+      if (isWsUnauthorized(err)) {
+        disconnect()
+      }
       reject(err)
     }
 
@@ -195,16 +248,20 @@ export async function connect(): Promise<void> {
   })
 }
 
+// 主动断开，不触发自动重连
 export function disconnect() {
   socket?.disconnect()
   socket = null
+  lastToken = null
   setSignalingStatus('disconnected')
 }
 
+// 获取当前 socket 供诊断与检查
 export function getSocket(): Socket | null {
   return socket
 }
 
+// 注册持久事件处理器，重连后继续生效
 export function on(event: string, handler: WsEventHandler) {
   if (!handlers.has(event)) {
     handlers.set(event, new Set())
@@ -216,6 +273,7 @@ export function on(event: string, handler: WsEventHandler) {
   }
 }
 
+// 移除已注册的事件处理器
 export function off(event: string, handler: WsEventHandler) {
   const set = handlers.get(event)
   if (!set) return
@@ -225,6 +283,7 @@ export function off(event: string, handler: WsEventHandler) {
   }
 }
 
+// 发送事件，可选 ack 回调
 export function emit(event: string, payload?: any, ack?: (...args: any[]) => void) {
   if (!socket) return
   if (typeof ack === 'function') {
@@ -234,6 +293,7 @@ export function emit(event: string, payload?: any, ack?: (...args: any[]) => voi
   }
 }
 
+// 发送事件并支持 ack 与超时
 export async function emitWithAck<T = any>(event: string, payload?: any, options?: { timeoutMs?: number }) {
   if (!socket) {
     throw new Error('Socket not connected')
@@ -244,33 +304,3 @@ export async function emitWithAck<T = any>(event: string, payload?: any, options
   return socket.emitWithAck(event, payload) as Promise<T>
 }
 
-export async function emitWithAckChecked<T = any>(
-  event: string,
-  payload: any,
-  fallbackMessage: string,
-  options?: { timeoutMs?: number }
-): Promise<T | null> {
-  const response = await emitWithAck<T>(event, payload, options)
-  const ackError = buildAckError(response, fallbackMessage)
-  if (!ackError) return response
-
-  if (isAckUnauthorized(response)) {
-    const deferred = createDeferred<T>()
-    setAuthResume(
-      async () => {
-        await connect()
-        const resumed = await emitWithAckChecked(event, payload, fallbackMessage, options)
-        deferred.resolve(resumed)
-      },
-      deferred.reject
-    )
-    handleUnauthorized()
-    disconnect()
-    return deferred.promise
-  }
-
-  useUiStore.getState().showWsError(ackError.message, () => {
-    void connect()
-  })
-  throw new Error(ackError.message)
-}

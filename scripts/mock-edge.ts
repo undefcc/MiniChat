@@ -129,7 +129,7 @@ socket.on('connect', () => {
   console.log(`[Edge] Connected to cloud! Socket ID: ${socket.id}`)
   
   // Register station
-  socket.emit('register-station', { stationId: STATION_ID, sessionId: SESSION_ID }, (res: any) => {
+  socket.emit('station-register', { stationId: STATION_ID, sessionId: SESSION_ID }, (res: any) => {
     console.log('[Edge] Registration response:', res)
   })
 
@@ -146,7 +146,7 @@ socket.on('cmd-station-status', () => {
 })
 
 // Handle stream request (Signaling only for now)
-socket.on('cmd-start-stream', (data: any) => {
+socket.on('station-cmd-start-stream', (data: any) => {
   console.log(`[Edge] 📹 Received stream request for camera: ${data.cameraId}`)
   console.log(`[Edge] Request came from user: ${data.requesterId}`)
   
@@ -155,7 +155,7 @@ socket.on('cmd-start-stream', (data: any) => {
 })
 
 // Handle Intercom Invite (Phase A)
-socket.on('cmd-station-join-room', (data: any) => {
+socket.on('station-cmd-join-room', (data: any) => {
   console.log(`[Edge] 📞 Received intercom invite to Room: ${data.roomId} from ${data.inviterId}`)
   
   // Simulate joining the room (Signaling interaction)

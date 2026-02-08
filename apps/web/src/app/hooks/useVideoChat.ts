@@ -3,7 +3,6 @@ import { useWebRTC } from './useWebRTC'
 import { useDataChannel } from './useDataChannel'
 import { request } from '../utils/request'
 import * as wsBus from '../services/wsBus'
-import type { WsEventHandler } from '../services/wsBus'
 import { WS_EVENTS } from '../services/wsConstants'
 import { VideoQualityProfile } from '../config/webrtc.config'
 
@@ -44,151 +43,179 @@ export function useVideoChat() {
   }, [sendControlMessage])
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
   const iceCandidateBufferRef = useRef<{ from: string; candidate: RTCIceCandidateInit }[]>([])
+  const activeStreamRef = useRef<MediaStream | null>(null)
   const isHangingUpRef = useRef(false) // 防止挂断时触发重连
   const hasCleanedUpRef = useRef(false) // 防止重复清理
-  const wsHandlersRef = useRef<{
-    peerJoined?: WsEventHandler
-    offer?: WsEventHandler
-    answer?: WsEventHandler
-    iceCandidate?: WsEventHandler
-    peerDisconnected?: WsEventHandler
-  } | null>(null)
+
+  const onPeerJoined = useCallback(async (payload: { peerId: string }) => {
+    const peerId = payload.peerId
+    console.log('[VideoChat] Peer joined:', peerId)
+    setRemotePeerId(peerId)
+
+    const stream = activeStreamRef.current || new MediaStream()
+    const pc = createPeerConnection(handleRemoteTrack, (candidate) => {
+      wsBus.emit(WS_EVENTS.ROOM.ICE_CANDIDATE, { to: peerId, candidate: candidate.toJSON() })
+    })
+    peerConnectionRef.current = pc
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        setCallStatus('connected')
+      } else if (pc.iceConnectionState === 'failed' && !isHangingUpRef.current) {
+        console.error('❌ [ICE] Connection failed, attempting ICE restart...')
+        pc.restartIce()
+      } else if (pc.iceConnectionState === 'failed' && isHangingUpRef.current) {
+        console.log('🚫 [ICE] Connection failed but user is hanging up, skip restart')
+      }
+    }
+
+    const channel = pc.createDataChannel('chat', { ordered: true })
+    setupDataChannel(channel)
+    addLocalStream(pc, stream)
+
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    wsBus.emit(WS_EVENTS.ROOM.OFFER, { to: peerId, offer })
+  }, [addLocalStream, createPeerConnection, handleRemoteTrack, setCallStatus, setRemotePeerId, setupDataChannel])
+
+  const onOffer = useCallback(async (payload: { from: string, offer: RTCSessionDescriptionInit }) => {
+    const { from, offer } = payload
+    console.log('[VideoChat] Received offer from:', from)
+    setRemotePeerId(from)
+
+    const stream = activeStreamRef.current || new MediaStream()
+    const pc = createPeerConnection(handleRemoteTrack, (candidate) => {
+      wsBus.emit(WS_EVENTS.ROOM.ICE_CANDIDATE, { to: from, candidate: candidate.toJSON() })
+    })
+    peerConnectionRef.current = pc
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        setCallStatus('connected')
+      } else if (pc.iceConnectionState === 'failed' && !isHangingUpRef.current) {
+        console.error('❌ [ICE] Connection failed, attempting ICE restart...')
+        pc.restartIce()
+      } else if (pc.iceConnectionState === 'failed' && isHangingUpRef.current) {
+        console.log('🚫 [ICE] Connection failed but user is hanging up, skip restart')
+      } else if (pc.iceConnectionState === 'disconnected') {
+        console.warn('⚠️ [ICE] Connection disconnected')
+      }
+    }
+
+    pc.ondatachannel = (event) => {
+      setupDataChannel(event.channel)
+    }
+
+    addLocalStream(pc, stream)
+
+    await pc.setRemoteDescription(new RTCSessionDescription(offer))
+    console.log('✅ [VideoChat] Remote description set, processing buffered ICE candidates:', iceCandidateBufferRef.current.length)
+
+    for (const buffered of iceCandidateBufferRef.current) {
+      if (buffered.from === from) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(buffered.candidate))
+          console.log('✅ [ICE] Added buffered candidate')
+        } catch (err) {
+          console.error('❌ [ICE] Failed to add buffered candidate:', err)
+        }
+      }
+    }
+    iceCandidateBufferRef.current = []
+
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    wsBus.emit(WS_EVENTS.ROOM.ANSWER, { to: from, answer })
+    setCallStatus('calling')
+  }, [addLocalStream, createPeerConnection, handleRemoteTrack, setCallStatus, setRemotePeerId, setupDataChannel])
+
+  const onAnswer = useCallback(async (payload: { from: string; answer: RTCSessionDescriptionInit }) => {
+    const { from, answer } = payload
+    console.log('[VideoChat] Received answer from:', from)
+    const pc = peerConnectionRef.current
+    if (pc && pc.remoteDescription === null && pc.signalingState === 'have-local-offer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(answer))
+      console.log('✅ [VideoChat] Remote description set, processing buffered ICE candidates:', iceCandidateBufferRef.current.length)
+
+      for (const buffered of iceCandidateBufferRef.current) {
+        if (buffered.from === from) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(buffered.candidate))
+            console.log('✅ [ICE] Added buffered candidate')
+          } catch (err) {
+            console.error('❌ [ICE] Failed to add buffered candidate:', err)
+          }
+        }
+      }
+      iceCandidateBufferRef.current = []
+      setCallStatus('calling')
+    } else if (pc) {
+      console.warn('⚠️ [VideoChat] Ignoring answer: invalid signaling state', pc.signalingState)
+    }
+  }, [setCallStatus])
+
+  const onIceCandidate = useCallback(async (payload: { from: string; candidate: RTCIceCandidateInit }) => {
+    const { from, candidate } = payload
+    console.log('🧊 [ICE] Received candidate from:', from)
+    const pc = peerConnectionRef.current
+
+    if (!pc || !pc.remoteDescription) {
+      console.log('📦 [ICE] Buffering candidate (no remote description yet)')
+      iceCandidateBufferRef.current.push({ from, candidate })
+      return
+    }
+
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate))
+      console.log('✅ [ICE] Candidate added successfully')
+    } catch (err) {
+      console.error('❌ [ICE] Failed to add candidate:', err)
+    }
+  }, [])
+
+  const onPeerDisconnected = useCallback((payload: { peerId: string }) => {
+    const { peerId } = payload
+    console.log('👋 [VideoChat] Peer disconnected:', peerId)
+    if (hasCleanedUpRef.current) {
+      console.log('⏭️ [VideoChat] Already cleaned up, skipping')
+      return
+    }
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close()
+      peerConnectionRef.current = null
+    }
+    iceCandidateBufferRef.current = []
+    setRemotePeerId(null)
+    setCallStatus('idle')
+  }, [setCallStatus, setRemotePeerId])
 
   const clearRoomHandlers = useCallback(() => {
-    const current = wsHandlersRef.current
-    if (!current) return
-    if (current.peerJoined) wsBus.off(WS_EVENTS.ROOM.PEER_JOINED, current.peerJoined)
-    if (current.offer) wsBus.off(WS_EVENTS.ROOM.OFFER, current.offer)
-    if (current.answer) wsBus.off(WS_EVENTS.ROOM.ANSWER, current.answer)
-    if (current.iceCandidate) wsBus.off(WS_EVENTS.ROOM.ICE_CANDIDATE, current.iceCandidate)
-    if (current.peerDisconnected) wsBus.off(WS_EVENTS.ROOM.PEER_DISCONNECTED, current.peerDisconnected)
-    wsHandlersRef.current = null
-  }, [])
+    wsBus.off(WS_EVENTS.ROOM.PEER_JOINED, onPeerJoined)
+    wsBus.off(WS_EVENTS.ROOM.OFFER, onOffer)
+    wsBus.off(WS_EVENTS.ROOM.ANSWER, onAnswer)
+    wsBus.off(WS_EVENTS.ROOM.ICE_CANDIDATE, onIceCandidate)
+    wsBus.off(WS_EVENTS.ROOM.PEER_DISCONNECTED, onPeerDisconnected)
+  }, [onAnswer, onIceCandidate, onOffer, onPeerDisconnected, onPeerJoined])
 
   // 创建房间
   const createRoom = useCallback(async () => {
     try {
       clearRoomHandlers()
       const stream = localStream || await startLocalStream()
+      activeStreamRef.current = stream
 
       await wsBus.connect()
       const data = await request.post<{ roomId: string }>('/rooms', {})
       const newRoomId = data.roomId
       if (!newRoomId) return null
 
-      const response = await wsBus.emitWithAckChecked<{ peers?: string[] }>(
+      const response = await wsBus.emitWithAck<{ roomId?: string; peers?: string[] }>(
         WS_EVENTS.ROOM.JOIN_ROOM,
-        { roomId: newRoomId },
-        'Join room failed'
+        { roomId: newRoomId }
       )
       if (!response) return null
-
-      // 注册信令事件监听
-      const onPeerJoined: WsEventHandler = async (payload: { peerId: string }) => {
-        const peerId = payload.peerId
-        console.log('[VideoChat] Peer joined:', peerId)
-        setRemotePeerId(peerId)
-        
-        // 创建 PeerConnection
-        const pc = createPeerConnection(handleRemoteTrack, (candidate) => {
-          wsBus.emit(WS_EVENTS.ROOM.ICE_CANDIDATE, { to: peerId, candidate: candidate.toJSON() })
-        })
-        peerConnectionRef.current = pc
-
-        // 监听连接状态变化
-        pc.oniceconnectionstatechange = () => {
-          console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
-          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-            setCallStatus('connected')
-          } else if (pc.iceConnectionState === 'failed' && !isHangingUpRef.current) {
-            console.error('❌ [ICE] Connection failed, attempting ICE restart...')
-            pc.restartIce()
-          } else if (pc.iceConnectionState === 'failed' && isHangingUpRef.current) {
-            console.log('🚫 [ICE] Connection failed but user is hanging up, skip restart')
-          }
-        }
-
-        // 创建数据通道
-        const channel = pc.createDataChannel('chat', { ordered: true })
-        setupDataChannel(channel)
-
-        // 添加本地媒体流
-        addLocalStream(pc, stream || new MediaStream())
-
-        // 创建并发送 offer
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        wsBus.emit(WS_EVENTS.ROOM.OFFER, { to: peerId, offer })
-      }
-
-      const onAnswer: WsEventHandler = async (payload: { from: string; answer: RTCSessionDescriptionInit }) => {
-        const { from, answer } = payload
-        console.log('[VideoChat] Received answer from:', from)
-        const pc = peerConnectionRef.current
-        if (pc && pc.remoteDescription === null && pc.signalingState === 'have-local-offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(answer))
-          console.log('✅ [VideoChat] Remote description set, processing buffered ICE candidates:', iceCandidateBufferRef.current.length)
-          
-          // 处理缓冲的 ICE 候选
-          for (const buffered of iceCandidateBufferRef.current) {
-            if (buffered.from === from) {
-              try {
-                await pc.addIceCandidate(new RTCIceCandidate(buffered.candidate))
-                console.log('✅ [ICE] Added buffered candidate')
-              } catch (err) {
-                console.error('❌ [ICE] Failed to add buffered candidate:', err)
-              }
-            }
-          }
-          iceCandidateBufferRef.current = []
-          setCallStatus('calling')
-        } else if (pc) {
-          console.warn('⚠️ [VideoChat] Ignoring answer: invalid signaling state', pc.signalingState)
-        }
-      }
-
-      const onIceCandidate: WsEventHandler = async (payload: { from: string; candidate: RTCIceCandidateInit }) => {
-        const { from, candidate } = payload
-        console.log('🧊 [ICE] Received candidate from:', from)
-        const pc = peerConnectionRef.current
-        
-        if (!pc || !pc.remoteDescription) {
-          console.log('📦 [ICE] Buffering candidate (no remote description yet)')
-          iceCandidateBufferRef.current.push({ from, candidate })
-          return
-        }
-        
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate))
-          console.log('✅ [ICE] Candidate added successfully')
-        } catch (err) {
-          console.error('❌ [ICE] Failed to add candidate:', err)
-        }
-      }
-
-      const onPeerDisconnected: WsEventHandler = (payload: { peerId: string }) => {
-        const { peerId } = payload
-        console.log('👋 [VideoChat] Peer disconnected:', peerId)
-        if (hasCleanedUpRef.current) {
-          console.log('⏭️ [VideoChat] Already cleaned up, skipping')
-          return
-        }
-        // 清理连接资源
-        if (peerConnectionRef.current) {
-          peerConnectionRef.current.close()
-          peerConnectionRef.current = null
-        }
-        iceCandidateBufferRef.current = []
-        setRemotePeerId(null)
-        setCallStatus('idle')
-      }
-
-      wsHandlersRef.current = {
-        peerJoined: onPeerJoined,
-        answer: onAnswer,
-        iceCandidate: onIceCandidate,
-        peerDisconnected: onPeerDisconnected,
-      }
 
       wsBus.on(WS_EVENTS.ROOM.PEER_JOINED, onPeerJoined)
       wsBus.on(WS_EVENTS.ROOM.ANSWER, onAnswer)
@@ -204,7 +231,7 @@ export function useVideoChat() {
       console.error('Error creating room:', error)
       throw error
     }
-  }, [localStream, startLocalStream, createPeerConnection, handleRemoteTrack, addLocalStream, setupDataChannel, clearRoomHandlers])
+  }, [addLocalStream, clearRoomHandlers, createPeerConnection, handleRemoteTrack, localStream, onAnswer, onIceCandidate, onPeerDisconnected, onPeerJoined, setupDataChannel, startLocalStream])
 
   // 加入房间
   const joinRoom = useCallback(async (id: string, options?: { silent?: boolean }) => {
@@ -212,12 +239,12 @@ export function useVideoChat() {
     try {
       clearRoomHandlers()
       const stream = localStream || await startLocalStream()
+      activeStreamRef.current = stream
       
       await wsBus.connect()
-      const response = await wsBus.emitWithAckChecked<{ peers?: string[] }>(
+      const response = await wsBus.emitWithAck<{ peers?: string[] }>(
         WS_EVENTS.ROOM.JOIN_ROOM,
-        { roomId: id },
-        'Join room failed'
+        { roomId: id }
       )
       if (!response) return null
       const peers = response.peers || []
@@ -228,173 +255,6 @@ export function useVideoChat() {
       if (peers.length > 0) {
         const peerId = peers[0] // 暂时只支持 1v1
         setRemotePeerId(peerId)
-      }
-
-      // 注册 onPeerJoined：当新用户加入时，我作为"先到者"需要发送 offer
-      const onPeerJoined: WsEventHandler = async (payload: { peerId: string }) => {
-        const peerId = payload.peerId
-        console.log('[VideoChat] Peer joined:', peerId)
-        setRemotePeerId(peerId)
-        
-        // 创建 PeerConnection
-        const pc = createPeerConnection(handleRemoteTrack, (candidate) => {
-          wsBus.emit(WS_EVENTS.ROOM.ICE_CANDIDATE, { to: peerId, candidate: candidate.toJSON() })
-        })
-        peerConnectionRef.current = pc
-
-        // 监听连接状态变化
-        pc.oniceconnectionstatechange = () => {
-          console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
-          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-            setCallStatus('connected')
-          } else if (pc.iceConnectionState === 'failed' && !isHangingUpRef.current) {
-            console.error('❌ [ICE] Connection failed, attempting ICE restart...')
-            pc.restartIce()
-          } else if (pc.iceConnectionState === 'failed' && isHangingUpRef.current) {
-            console.log('🚫 [ICE] Connection failed but user is hanging up, skip restart')
-          }
-        }
-
-        // 创建数据通道（作为 offer 方）
-        const channel = pc.createDataChannel('chat', { ordered: true })
-        setupDataChannel(channel)
-
-        // 添加本地媒体流
-        addLocalStream(pc, stream || new MediaStream())
-
-        // 创建并发送 offer
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        wsBus.emit(WS_EVENTS.ROOM.OFFER, { to: peerId, offer })
-      }
-
-      // 注册 onOffer：当房间里已有人时，接收他们发来的 offer
-      const onOffer: WsEventHandler = async (payload: { from: string, offer: RTCSessionDescriptionInit }) => {
-        const { from, offer } = payload
-        console.log('[VideoChat] Received offer from:', from)
-        setRemotePeerId(from)
-
-        const pc = createPeerConnection(handleRemoteTrack, (candidate) => {
-          wsBus.emit(WS_EVENTS.ROOM.ICE_CANDIDATE, { to: from, candidate: candidate.toJSON() })
-        })
-        peerConnectionRef.current = pc
-
-        // 监听连接状态变化
-        pc.oniceconnectionstatechange = () => {
-          console.log('🔌 [ICE] Connection state:', pc.iceConnectionState)
-          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-            setCallStatus('connected')
-          } else if (pc.iceConnectionState === 'failed' && !isHangingUpRef.current) {
-            console.error('❌ [ICE] Connection failed, attempting ICE restart...')
-            pc.restartIce()
-          } else if (pc.iceConnectionState === 'failed' && isHangingUpRef.current) {
-            console.log('🚫 [ICE] Connection failed but user is hanging up, skip restart')
-          } else if (pc.iceConnectionState === 'disconnected') {
-            console.warn('⚠️ [ICE] Connection disconnected')
-          }
-        }
-
-        // 监听数据通道（作为 answer 方）
-        pc.ondatachannel = (event) => {
-          setupDataChannel(event.channel)
-        }
-
-        // 添加本地媒体流
-        addLocalStream(pc, stream || new MediaStream())
-
-        // 设置远程描述并创建 answer
-        await pc.setRemoteDescription(new RTCSessionDescription(offer))
-        console.log('✅ [VideoChat] Remote description set, processing buffered ICE candidates:', iceCandidateBufferRef.current.length)
-        
-        // 处理缓冲的 ICE 候选
-        for (const buffered of iceCandidateBufferRef.current) {
-          if (buffered.from === from) {
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(buffered.candidate))
-              console.log('✅ [ICE] Added buffered candidate')
-            } catch (err) {
-              console.error('❌ [ICE] Failed to add buffered candidate:', err)
-            }
-          }
-        }
-        iceCandidateBufferRef.current = []
-        
-        const answer = await pc.createAnswer()
-        await pc.setLocalDescription(answer)
-        wsBus.emit(WS_EVENTS.ROOM.ANSWER, { to: from, answer })
-        setCallStatus('calling')
-      }
-
-      // 注册 onAnswer：处理对方返回的 answer
-      const onAnswer: WsEventHandler = async (payload: { from: string; answer: RTCSessionDescriptionInit }) => {
-        const { from, answer } = payload
-        console.log('[VideoChat] Received answer from:', from)
-        const pc = peerConnectionRef.current
-        if (pc && pc.remoteDescription === null && pc.signalingState === 'have-local-offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(answer))
-          console.log('✅ [VideoChat] Remote description set, processing buffered ICE candidates:', iceCandidateBufferRef.current.length)
-          
-          // 处理缓冲的 ICE 候选
-          for (const buffered of iceCandidateBufferRef.current) {
-            if (buffered.from === from) {
-              try {
-                await pc.addIceCandidate(new RTCIceCandidate(buffered.candidate))
-                console.log('✅ [ICE] Added buffered candidate')
-              } catch (err) {
-                console.error('❌ [ICE] Failed to add buffered candidate:', err)
-              }
-            }
-          }
-          iceCandidateBufferRef.current = []
-          setCallStatus('calling')
-        } else if (pc) {
-          console.warn('⚠️ [VideoChat] Ignoring answer: invalid signaling state', pc.signalingState)
-        }
-      }
-
-      const onIceCandidate: WsEventHandler = async (payload: { from: string; candidate: RTCIceCandidateInit }) => {
-        const { from, candidate } = payload
-        console.log('🧊 [ICE] Received candidate from:', from)
-        const pc = peerConnectionRef.current
-        
-        if (!pc || !pc.remoteDescription) {
-          // 缓冲 ICE 候选，等待 remoteDescription 设置后再添加
-          console.log('📦 [ICE] Buffering candidate (no remote description yet)')
-          iceCandidateBufferRef.current.push({ from, candidate })
-          return
-        }
-        
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate))
-          console.log('✅ [ICE] Candidate added successfully')
-        } catch (err) {
-          console.error('❌ [ICE] Failed to add candidate:', err)
-        }
-      }
-
-      const onPeerDisconnected: WsEventHandler = (payload: { peerId: string }) => {
-        const { peerId } = payload
-        console.log('👋 [VideoChat] Peer disconnected:', peerId)
-        if (hasCleanedUpRef.current) {
-          console.log('⏭️ [VideoChat] Already cleaned up, skipping')
-          return
-        }
-        // 清理连接资源
-        if (peerConnectionRef.current) {
-          peerConnectionRef.current.close()
-          peerConnectionRef.current = null
-        }
-        iceCandidateBufferRef.current = []
-        setRemotePeerId(null)
-        setCallStatus('idle')
-      }
-
-      wsHandlersRef.current = {
-        peerJoined: onPeerJoined,
-        offer: onOffer,
-        answer: onAnswer,
-        iceCandidate: onIceCandidate,
-        peerDisconnected: onPeerDisconnected,
       }
 
       wsBus.on(WS_EVENTS.ROOM.PEER_JOINED, onPeerJoined)
@@ -413,7 +273,7 @@ export function useVideoChat() {
       }
       setCallStatus('idle')
     }
-  }, [localStream, startLocalStream, createPeerConnection, handleRemoteTrack, setupDataChannel, addLocalStream, clearRoomHandlers])
+  }, [addLocalStream, clearRoomHandlers, createPeerConnection, handleRemoteTrack, localStream, onAnswer, onIceCandidate, onOffer, onPeerDisconnected, onPeerJoined, setupDataChannel, startLocalStream])
 
   // 切换视频
   const toggleVideo = useCallback(() => {

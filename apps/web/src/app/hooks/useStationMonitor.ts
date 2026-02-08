@@ -148,11 +148,14 @@ export function useStationMonitor() {
       const completeOffer = pc.localDescription
 
       // 发送指令
-      wsBus.emit(WS_EVENTS.STATION.CMD_REQUEST_STREAM, {
-        stationId,
-        cameraId,
-        offer: completeOffer, // 携带完整的 Offer (包含 ICE Candidates)
-      })
+      await wsBus.emitWithAck(
+        WS_EVENTS.STATION.CMD_REQUEST_STREAM,
+        {
+          stationId,
+          cameraId,
+          offer: completeOffer, // 携带完整的 Offer (包含 ICE Candidates)
+        }
+      )
 
       // 保存 PC 实例以便后续处理 Answer 和 ICE
       setStreams(prev => {
@@ -212,7 +215,10 @@ export function useStationMonitor() {
       stationLatencyTimestampRef.current.set(stationId, Date.now())
       
       await wsBus.connect()
-      wsBus.emit(WS_EVENTS.STATION.REQUEST_STATUS, { stationId })
+      await wsBus.emitWithAck(
+        WS_EVENTS.STATION.REQUEST_STATUS,
+        { stationId }
+      )
       addLog(`请求设备状态: ${stationId}`)
     } catch (err: any) {
       addLog(`请求设备状态失败: ${err.message || 'unknown error'}`)
@@ -221,12 +227,12 @@ export function useStationMonitor() {
 
   // 3. 全局信令监听
   useEffect(() => {
-    // 监听总控回复: stream-ready
+    // 监听总控回复: station-stream-ready
     const handleStreamReady = async (data: any) => {
       // data: { stationId, requesterId, status, answer, url }
       // 我们需要想办法匹配回具体的 cameraId... 
       // 简化起见，假设目前只有一个流在请求，或者后端透传了 cameraId
-      // 真实场景下，backend 应该在 stream-ready 里透传 cameraId
+      // 真实场景下，backend 应该在 station-stream-ready 里透传 cameraId
       // 这里做一个简单的遍历匹配
       
       addLog(`收到总控回复: ${data.status} from ${data.stationId}`)

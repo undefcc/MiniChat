@@ -10,6 +10,7 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { resolveGatewayUrl } from '@/app/utils/endpoints'
+import * as wsBus from '@/app/services/wsBus'
 
 type AuthMode = 'login' | 'register'
 
@@ -139,10 +140,11 @@ export function AuthLoginLauncher() {
 
   const handleLogout = () => {
     clearAuth()
+    wsBus.disconnect()
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[70]">
+    <div className="fixed bottom-4 left-4 z-[70]">
       <Dialog open={loginOpen} onOpenChange={(open) => (open ? openLogin() : closeLogin())}>
         <DialogTrigger asChild>
           <Button variant="outline" className="gap-2 shadow-sm">

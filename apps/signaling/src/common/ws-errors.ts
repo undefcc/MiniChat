@@ -26,16 +26,6 @@ export type WsErrorCode =
   | 'STATION_NOT_REGISTERED'
   | 'STATION_UNREACHABLE'
 
-export type WsErrorPayload = {
-  code: WsErrorCode
-  message: string
-  detail?: Record<string, unknown>
-}
-
-export function wsError(code: WsErrorCode, message: string, detail?: Record<string, unknown>) {
-  return { error: { code, message, detail } }
-}
-
-export function wsException(code: WsErrorCode, message: string, detail?: Record<string, unknown>) {
-  return new WsException({ code, message, detail })
+export function wsException(code: WsErrorCode, msg: string) {
+  return new WsException(`${code}: ${msg}`)
 }

@@ -12,8 +12,10 @@ import { Server, Socket } from 'socket.io'
 import { RoomService } from './room.service'
 import { Injectable, UseGuards } from '@nestjs/common'
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard'
-import { wsError } from '../common/ws-errors'
+import { wsException } from '../common/ws-errors'
 import { JwtVerifierService } from '../auth/jwt-verifier.service'
+import { SessionStoreService } from '../auth/session-store.service'
+import { SocketRegistryService } from '../auth/socket-registry.service'
 import { applyWsAuthMiddleware } from '../auth/ws-auth.middleware'
 
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3100,http://localhost:3000')
@@ -42,10 +44,13 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect, On
   constructor(
     private roomService: RoomService,
     private readonly verifier: JwtVerifierService,
+    private readonly sessionStore: SessionStoreService,
+    private readonly socketRegistry: SocketRegistryService,
   ) {}
 
   afterInit(server: Server) {
-    applyWsAuthMiddleware(server, this.verifier)
+    this.socketRegistry.register(server)
+    applyWsAuthMiddleware(server, this.verifier, this.sessionStore)
   }
 
   handleConnection(client: Socket) {
@@ -89,7 +94,7 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     const room = this.roomService.getRoom(roomId)
 
     if (!room) {
-      return wsError('ROOM_NOT_FOUND', 'Room not found', { roomId })
+      throw wsException('ROOM_NOT_FOUND', 'Room not found')
     }
 
     client.join(roomId)
@@ -114,6 +119,7 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     this.roomService.removePeerFromRoom(roomId, client.id)
     
     client.to(roomId).emit('peer-left', { peerId: client.id })
+    return undefined
   }
 
     // 客户端延迟测量 ping
