@@ -16,11 +16,25 @@ let connecting = false
 const handleUnauthorized = () => {
   useUserStore.getState().clearAuth()
   useUiStore.getState().invalidateAuth()
-  useUiStore.getState().openLogin(true)
+  useUiStore.getState().openLogin(() => useUiStore.getState().runAuthResume())
 }
 
 const setSignalingStatus = (status: 'connected' | 'disconnected' | 'error' | 'connecting', error?: string | null) => {
   useConnectionStore.getState().setSignalingStatus(status, error ?? null)
+}
+
+const createDeferred = <T>() => {
+  let resolve: (value: T | null) => void
+  let reject: (reason?: unknown) => void
+  const promise = new Promise<T | null>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve: resolve!, reject: reject! }
+}
+
+const setAuthResume = (resume: () => Promise<unknown>, reject?: (reason?: unknown) => void) => {
+  useUiStore.getState().setAuthResume(resume, reject || null)
 }
 
 const handleWsError = (err: unknown, fallback: string, retry?: () => void | Promise<void>) => {
@@ -241,9 +255,18 @@ export async function emitWithAckChecked<T = any>(
   if (!ackError) return response
 
   if (isAckUnauthorized(response)) {
+    const deferred = createDeferred<T>()
+    setAuthResume(
+      async () => {
+        await connect()
+        const resumed = await emitWithAckChecked(event, payload, fallbackMessage, options)
+        deferred.resolve(resumed)
+      },
+      deferred.reject
+    )
     handleUnauthorized()
     disconnect()
-    return null
+    return deferred.promise
   }
 
   useUiStore.getState().showWsError(ackError.message, () => {

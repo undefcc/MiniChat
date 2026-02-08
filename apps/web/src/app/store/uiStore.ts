@@ -11,16 +11,22 @@ export type ToastMessage = {
 interface UiState {
   toasts: ToastMessage[]
   loginOpen: boolean
-  refreshAfterLogin: boolean
   authEpoch: number
+  authResume: (() => Promise<unknown>) | null
+  authResumeReject: ((reason?: unknown) => void) | null
+  loginOnSuccess: (() => void | Promise<void>) | null
+  loginOnCancel: (() => void) | null
   wsErrorOpen: boolean
   wsErrorMessage: string | null
   wsRetry: (() => void | Promise<void>) | null
   showToast: (message: string, type?: ToastType, durationMs?: number) => void
   dismissToast: (id: string) => void
   setLoginOpen: (open: boolean) => void
-  openLogin: (refreshAfterLogin?: boolean) => void
-  clearRefreshAfterLogin: () => void
+  openLogin: (onSuccess?: () => void | Promise<void>, onCancel?: () => void) => void
+  closeLogin: () => void
+  runLoginSuccess: () => Promise<void>
+  setAuthResume: (resume: (() => Promise<unknown>) | null, reject?: ((reason?: unknown) => void) | null) => void
+  runAuthResume: () => Promise<boolean>
   invalidateAuth: () => void
   showWsError: (message: string, onRetry?: () => void | Promise<void>) => void
   closeWsError: () => void
@@ -32,8 +38,11 @@ const defaultToastDurationMs = 4000
 export const useUiStore = create<UiState>((set, get) => ({
   toasts: [],
   loginOpen: false,
-  refreshAfterLogin: false,
   authEpoch: 0,
+  authResume: null,
+  authResumeReject: null,
+  loginOnSuccess: null,
+  loginOnCancel: null,
   wsErrorOpen: false,
   wsErrorMessage: null,
   wsRetry: null,
@@ -57,12 +66,58 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   setLoginOpen: (open) => set({ loginOpen: open }),
 
-  openLogin: (refreshAfterLogin = false) => set(state => ({
+  openLogin: (onSuccess, onCancel) => set({
     loginOpen: true,
-    refreshAfterLogin: refreshAfterLogin || state.refreshAfterLogin,
-  })),
+    loginOnSuccess: onSuccess || null,
+    loginOnCancel: onCancel || null,
+  }),
 
-  clearRefreshAfterLogin: () => set({ refreshAfterLogin: false }),
+  closeLogin: () => {
+    const { loginOnCancel, authResumeReject } = get()
+    set({
+      loginOpen: false,
+      loginOnSuccess: null,
+      loginOnCancel: null,
+      authResume: null,
+      authResumeReject: null,
+    })
+    if (loginOnCancel) {
+      loginOnCancel()
+    }
+    if (authResumeReject) {
+      authResumeReject(new Error('Login cancelled'))
+    }
+  },
+
+  runLoginSuccess: async () => {
+    const { loginOnSuccess } = get()
+    set({ loginOpen: false, loginOnSuccess: null, loginOnCancel: null })
+    if (loginOnSuccess) {
+      await loginOnSuccess()
+    } else {
+      await get().runAuthResume()
+    }
+  },
+
+  setAuthResume: (resume, reject = null) => {
+    const { authResumeReject } = get()
+    if (authResumeReject && authResumeReject !== reject) {
+      authResumeReject(new Error('Superseded by a newer auth resume action'))
+    }
+    set({ authResume: resume, authResumeReject: reject })
+  },
+
+  runAuthResume: async () => {
+    const { authResume } = get()
+    if (!authResume) return false
+    set({ authResume: null, authResumeReject: null })
+    try {
+      await authResume()
+    } catch {
+      return true
+    }
+    return true
+  },
 
   invalidateAuth: () => set(state => ({ authEpoch: state.authEpoch + 1 })),
 

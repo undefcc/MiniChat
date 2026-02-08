@@ -44,15 +44,31 @@ const getErrorMessage = (data: unknown, status?: number, fallback?: string) => {
   return `请求失败${status ? ` (${status})` : ''}`
 }
 
-const handleError = (error: AxiosError, options?: RequestOptions): never => {
+const createDeferred = <T>() => {
+  let resolve: (value: T) => void
+  let reject: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve: resolve!, reject: reject! }
+}
+
+const handleError = <T>(error: AxiosError, options: RequestOptions | undefined, retry: () => Promise<T>): Promise<T> => {
   const status = error.response?.status ?? 0
   const data = error.response?.data
   const message = getErrorMessage(data, status, error.message)
 
   if (status === 401) {
+    const deferred = createDeferred<T>()
+    useUiStore.getState().setAuthResume(
+      () => retry().then(deferred.resolve).catch(deferred.reject),
+      deferred.reject
+    )
     useUserStore.getState().clearAuth()
     useUiStore.getState().invalidateAuth()
-    useUiStore.getState().openLogin(true)
+    useUiStore.getState().openLogin(() => useUiStore.getState().runAuthResume())
+    return deferred.promise
   } else if (options?.showToast !== false) {
     useUiStore.getState().showToast(message, 'error')
   }
@@ -94,7 +110,7 @@ const requestCore = async <T>(
     })
     return response.data
   } catch (err) {
-    return handleError(err as AxiosError, merged)
+    return handleError<T>(err as AxiosError, merged, () => requestCore<T>(config))
   }
 }
 

@@ -50,7 +50,7 @@ export function AuthLoginLauncher() {
     },
   })
 
-  const [loginOpen, refreshAfterLogin] = useUiStore(useShallow(s => [s.loginOpen, s.refreshAfterLogin]))
+  const loginOpen = useUiStore(s => s.loginOpen)
 
   const resetForms = useCallback(
     (clearError = true) => {
@@ -64,7 +64,7 @@ export function AuthLoginLauncher() {
   )
   const [token, user] = useUserStore(useShallow(s => [s.token, s.user]))
   const { clearAuth, login, guestLogin, register } = useUserStore.getState()
-  const { setLoginOpen, clearRefreshAfterLogin, showToast } = useUiStore.getState()
+  const { openLogin, closeLogin, runLoginSuccess, showToast } = useUiStore.getState()
 
   useEffect(() => {
     setGatewayUrl(resolveGatewayUrl())
@@ -83,11 +83,7 @@ export function AuthLoginLauncher() {
 
     try {
       await login(values.email, values.password)
-      setLoginOpen(false)
-      if (refreshAfterLogin && typeof window !== 'undefined') {
-        clearRefreshAfterLogin()
-        window.location.reload()
-      }
+      await runLoginSuccess()
     } catch (err) {
       const message = err instanceof Error ? err.message : '登录失败'
       setError(message)
@@ -110,11 +106,7 @@ export function AuthLoginLauncher() {
 
       // 注册成功，自动登录
       if (data.accessToken) {
-        setLoginOpen(false)
-        if (refreshAfterLogin && typeof window !== 'undefined') {
-          clearRefreshAfterLogin()
-          window.location.reload()
-        }
+        await runLoginSuccess()
       } else {
         setError('注册成功，请重新登录')
         setMode('login')
@@ -135,11 +127,7 @@ export function AuthLoginLauncher() {
 
     try {
       await guestLogin()
-      setLoginOpen(false)
-      if (refreshAfterLogin && typeof window !== 'undefined') {
-        clearRefreshAfterLogin()
-        window.location.reload()
-      }
+      await runLoginSuccess()
     } catch (err) {
       const message = err instanceof Error ? err.message : '游客登录失败'
       setError(message)
@@ -155,7 +143,7 @@ export function AuthLoginLauncher() {
 
   return (
     <div className="fixed bottom-4 right-4 z-[70]">
-      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
+      <Dialog open={loginOpen} onOpenChange={(open) => (open ? openLogin() : closeLogin())}>
         <DialogTrigger asChild>
           <Button variant="outline" className="gap-2 shadow-sm">
             <ShieldCheck className="h-4 w-4" />
