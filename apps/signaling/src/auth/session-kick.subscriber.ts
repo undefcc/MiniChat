@@ -49,12 +49,21 @@ export class SessionKickSubscriber implements OnModuleInit, OnModuleDestroy {
 
     const servers = this.socketRegistry.getServers()
     for (const server of servers) {
-      const socketContainer = (server as unknown as { sockets?: Map<string, any> | { sockets?: Map<string, any> } })
-        .sockets
-      const socketMap = socketContainer instanceof Map ? socketContainer : socketContainer?.sockets
+      // 获取 sockets 容器
+      const container = server.sockets
+      
+      // 兼容不同版本
+      let socketMap: Map<string, any> | undefined
+      if (container instanceof Map) {
+        socketMap = container  // v3.x
+      } else if (container && 'sockets' in container) {
+        socketMap = container.sockets  // v4.x
+      }
+      
       if (!socketMap) continue
-
-      for (const socket of socketMap.values()) {
+      
+      // 遍历 socket
+      for (const socket of Array.from(socketMap.values())) {
         const user = socket.data.user as { userId?: string; sessionId?: string } | undefined
         if (user?.userId === payload.userId && user.sessionId === payload.sessionId) {
           socket.emit('kicked', {
